@@ -3,6 +3,13 @@
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
+if [ ! $1 ]; then
+	echo "Please enter the squashed commit message:"
+	read COMMIT_MESSAGE
+else
+	COMMIT_MESSAGE=$1
+fi
+
 CURRENT_BRANCH_NAME=$(git rev-parse --abbrev-ref HEAD)
 
 # Make sure we don't make a backup branch repeatedly
@@ -12,10 +19,8 @@ if [[ $CURRENT_BRANCH_NAME == backup* ]]; then
 fi
 
 BACKUP_BRANCH_NAME="backup/$(date +%Y-%m-%d__%H-%M-%S)/$CURRENT_BRANCH_NAME"
-
 git branch $BACKUP_BRANCH_NAME
 
-msg=${1:-Squash Commit}
 git reset --soft HEAD~$(git rev-list --count HEAD ^master)
 git add .
-git commit -m "$msg"
+git commit -m "$COMMIT_MESSAGE"
