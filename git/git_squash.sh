@@ -4,7 +4,7 @@ YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
 if [ ! $1 ]; then
-	echo "Please enter the squashed commit message:"
+	echo "${YELLOW}Please enter the squashed commit message:${NC}"
 	read COMMIT_MESSAGE
 else
 	COMMIT_MESSAGE=$1
