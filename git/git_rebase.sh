@@ -17,6 +17,6 @@ BACKUP_BRANCH_NAME="backup/$(date +%Y-%m-%d__%H-%M-%S)/$CURRENT_BRANCH_NAME"
 git branch $BACKUP_BRANCH_NAME
 
 echo "${YELLOW}Current branch has been backed up as: $BACKUP_BRANCH_NAME${NC}"
-echo "${YELLOW}Rebasing onto parent branch $PARENT_BRANCH_NAME...${NC}"
+echo "${YELLOW}Rebasing onto parent branch >>$PARENT_BRANCH_NAME...${NC}<<"
 
 git pull origin $PARENT_BRANCH_NAME --rebase
