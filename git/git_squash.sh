@@ -18,7 +18,7 @@ if [[ $CURRENT_BRANCH_NAME == backup* ]]; then
 	exit 1
 fi
 
-BACKUP_BRANCH_NAME="backup/$(date +%Y-%m-%d__%H-%M-%S)/$CURRENT_BRANCH_NAME"
+BACKUP_BRANCH_NAME="backup/$(date +%Y-%m-%d/%H-%M-%S)/$CURRENT_BRANCH_NAME"
 git branch $BACKUP_BRANCH_NAME
 
 git reset --soft HEAD~$(git rev-list --count HEAD ^master)
