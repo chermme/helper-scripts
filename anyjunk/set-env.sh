@@ -9,6 +9,6 @@ export API_SEARCH_URL="${ENV}-hyrax.api-anyjunk.co.uk",
 
 echo " "
 echo "ENV vars set to:"
-echo "API_URL: ${ENV}-hyrax.api-anyjunk.co.uk"
-echo "API_SEARCH_URL: ${ENV}-hyrax.api-anyjunk.co.uk"
+echo "API_URL: ${API_URL}"
+echo "API_SEARCH_URL: ${API_SEARCH_URL}"
 echo " "
