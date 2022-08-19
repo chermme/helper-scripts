@@ -5,7 +5,7 @@ else
 fi
 
 export API_URL="${ENV}-hyrax.api-anyjunk.co.uk"
-export API_SEARCH_URL="${ENV}-hyrax.api-anyjunk.co.uk"
+export API_SEARCH_URL="${ENV}-hyraxsearch.api-anyjunk.co.uk"
 
 echo " "
 echo "ENV vars set to:"
