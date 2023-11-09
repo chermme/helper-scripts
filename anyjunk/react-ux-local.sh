@@ -15,4 +15,6 @@ else
   echo "The target folder already exists. No changes were made."
 fi
 
-cp -Rf $react_ux_folder/*.* $original_folder
+cp -Rf $react_ux_folder/ $original_folder
+
+echo "Rember to start the prooject with --force flag."
