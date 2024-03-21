@@ -2,6 +2,8 @@ PR_NUMBER=$1
 
 SOURCE_REPO=thedrawingroom/hss-ux-components
 SOURCE_REPO_PATH=/Users/petercherm/git/AnyJunk/hss-ux-components
+
+DEST_REPO=HSS-Proservice/react-ux
 DEST_REPO_PATH=/Users/petercherm/git/AnyJunk/react-ux
 
 if [ -z "$PR_NUMBER" ]; then
@@ -17,7 +19,9 @@ cd $SOURCE_REPO_PATH
 git checkout $PR_BRANCH_NAME
 
 # create a new branch in the destination repo
+MASTER_BRANCH_NAME=$(gh api repos/$DEST_REPO --jq '.default_branch')
 cd $DEST_REPO_PATH
+git checkout $MASTER_BRANCH_NAME
 git checkout -b sync/$PR_BRANCH_NAME
 
 for file in $CHANGED_FILES; do
