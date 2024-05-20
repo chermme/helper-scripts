@@ -1,5 +1,5 @@
 if [ ! $1 ]; then
-  ENV="staging"
+  ENV="nightly"
 else
   ENV=$1
 fi
