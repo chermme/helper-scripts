@@ -1,8 +1,8 @@
-npm run --prefix /Users/petercherm/git/AnyJunk/react-ux build
+npm run --prefix $HOME/git/hss/react-ux build
 
-react_ux_folder=/Users/petercherm/git/AnyJunk/react-ux/dist
-original_folder="/Users/petercherm/git/AnyJunk/react-v2/node_modules/@hss-proservice/react-ux/dist"
-target_folder="/Users/petercherm/git/AnyJunk/react-v2/node_modules/@hss-proservice/react-ux/dist_original"
+react_ux_folder="$HOME/git/hss/react-ux/dist"
+original_folder="$HOME/git/hss/react-v2/node_modules/@hss-proservice/react-ux/dist"
+target_folder="$HOME/git/hss/react-v2/node_modules/@hss-proservice/react-ux/dist_original"
 
 # Check if the target folder already exists
 if [ ! -d "$target_folder" ]; then
