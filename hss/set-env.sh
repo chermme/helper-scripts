@@ -4,11 +4,19 @@ else
   ENV=$1
 fi
 
-export API_URL="${ENV}-hyrax.api-hss.com"
-export API_SEARCH_URL="${ENV}-hyraxsearch.api-hss.com"
+if [[ $ENV == *"dev"* ]]; then
+  export API_URL="${ENV}-hyrax.dev.api-hss.com"
+  export API_SEARCH_URL="${ENV}-hyraxsearch.dev.api-hss.com"
 
-export HSS_API_URL="${ENV}-hyrax.api-hss.com"
-export HSS_API_SEARCH_URL="${ENV}-hyraxsearch.api-hss.com"
+  export HSS_API_URL="${ENV}-hyrax.dev.api-hss.com"
+  export HSS_API_SEARCH_URL="${ENV}-hyraxsearch.dev.api-hss.com"
+else
+  export API_URL="${ENV}-hyrax.api-hss.com"
+  export API_SEARCH_URL="${ENV}-hyraxsearch.api-hss.com"
+
+  export HSS_API_URL="${ENV}-hyrax.api-hss.com"
+  export HSS_API_SEARCH_URL="${ENV}-hyraxsearch.api-hss.com"
+fi
 
 echo "------------------------------------------"
 echo "ENV vars set to:"
