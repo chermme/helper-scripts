@@ -4,7 +4,7 @@ else
   ENV=$1
 fi
 
-if [[ $ENV == *"dev"* ]]; then
+if [[ $ENV == "dev"* ]]; then
   export API_URL="${ENV}-hyrax.dev.api-hss.com"
   export API_SEARCH_URL="${ENV}-hyraxsearch.dev.api-hss.com"
 
