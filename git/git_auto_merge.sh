@@ -97,24 +97,38 @@ CONFLICT_BRANCHES=()
 # Process each branch
 for BRANCH in "${BRANCHES[@]}"; do
     print_status "Processing branch: $BRANCH"
-    
+
+    # Check for uncommitted changes before switching branches
+    if [[ -n $(git status --porcelain) ]]; then
+        print_error "Uncommitted changes detected. Skipping $BRANCH. Please commit or stash changes first."
+        FAILED_BRANCHES+=("$BRANCH")
+        continue
+    fi
+
     # Checkout the branch
     if ! git checkout "$BRANCH" 2>/dev/null; then
         print_error "Failed to checkout $BRANCH"
         FAILED_BRANCHES+=("$BRANCH")
         continue
     fi
-    
+
+    # Check for uncommitted changes after checkout
+    if [[ -n $(git status --porcelain) ]]; then
+        print_error "Uncommitted changes detected in $BRANCH. Skipping. Please commit or stash changes first."
+        FAILED_BRANCHES+=("$BRANCH")
+        continue
+    fi
+
     # Pull latest changes for this branch
     print_status "Pulling latest changes for $BRANCH..."
     git pull origin "$BRANCH" || true
-    
+
     # Attempt to merge main
     print_status "Merging $MAIN_BRANCH into $BRANCH..."
-    
+
     if git merge "$MAIN_BRANCH" --no-edit; then
         print_success "Merge successful for $BRANCH"
-        
+
         # Push the changes
         print_status "Pushing $BRANCH..."
         if git push origin "$BRANCH"; then
@@ -126,13 +140,13 @@ for BRANCH in "${BRANCHES[@]}"; do
         fi
     else
         print_warning "Merge conflict detected in $BRANCH"
-        
+
         # Abort the merge
         git merge --abort
         print_status "Merge aborted for $BRANCH"
         CONFLICT_BRANCHES+=("$BRANCH")
     fi
-    
+
     echo # Empty line for readability
 done
 
