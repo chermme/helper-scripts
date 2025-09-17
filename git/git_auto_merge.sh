@@ -4,7 +4,8 @@ set -e  # Exit on any error
 
 # Configuration
 MAIN_BRANCH="${1:-main}"  # First argument or default to 'main'
-EXCLUDED_PATTERNS=("backup/" "temp/" "archive/")  # Add patterns to exclude
+EXCLUDED_BRANCHES=("backup/" "temp/" "archive/")  # Add patterns to exclude
+EXCLUDED_GH_LABELS=("mergequeue")  # Add GitHub labels to exclude branches with these labels
 
 # Function to check if branch should be excluded
 should_exclude_branch() {
@@ -16,11 +17,26 @@ should_exclude_branch() {
     fi
     
     # Check against excluded patterns
-    for pattern in "${EXCLUDED_PATTERNS[@]}"; do
+    for pattern in "${EXCLUDED_BRANCHES[@]}"; do
         if [[ "$branch" == *"$pattern"* ]]; then
             return 0  # exclude
         fi
     done
+    
+    # Check for excluded GitHub labels
+    if command -v gh >/dev/null 2>&1 && command -v jq >/dev/null 2>&1; then
+        pr_info=$(gh pr list --head "$branch" --json number,labels --jq '.[0]' 2>/dev/null)
+        if [ -n "$pr_info" ] && [ "$pr_info" != "null" ]; then
+            labels=$(echo "$pr_info" | jq -r '.labels[].name' 2>/dev/null)
+            for label in $labels; do
+                for excluded_label in "${EXCLUDED_GH_LABELS[@]}"; do
+                    if [ "$label" = "$excluded_label" ]; then
+                        return 0  # exclude
+                    fi
+                done
+            done
+        fi
+    fi
     
     return 1  # don't exclude
 }
@@ -55,11 +71,26 @@ if ! git rev-parse --git-dir > /dev/null 2>&1; then
     exit 1
 fi
 
+# Check if gh is installed and authenticated
+if command -v gh >/dev/null 2>&1; then
+    if ! gh auth status >/dev/null 2>&1; then
+        print_warning "GitHub CLI (gh) is installed but not authenticated. GitHub label checks will be skipped."
+    fi
+else
+    print_warning "GitHub CLI (gh) is not installed. GitHub label checks will be skipped."
+fi
+
+# Check if jq is installed
+if ! command -v jq >/dev/null 2>&1; then
+    print_warning "jq is not installed. GitHub label checks will be skipped."
+fi
+
 # Store the current branch
 ORIGINAL_BRANCH=$(git branch --show-current)
 print_status "Main branch: $MAIN_BRANCH"
 print_status "Currently on branch: $ORIGINAL_BRANCH"
-print_status "Excluded patterns: ${EXCLUDED_PATTERNS[*]}"
+print_status "Excluded patterns: ${EXCLUDED_BRANCHES[*]}"
+print_status "Excluded GitHub labels: ${EXCLUDED_GH_LABELS[*]}"
 
 # Fetch latest changes
 print_status "Fetching latest changes..."
@@ -75,9 +106,11 @@ ALL_BRANCHES=$(git branch --format='%(refname:short)')
 BRANCHES=()
 
 while IFS= read -r branch; do
-    if ! should_exclude_branch "$branch"; then
-        BRANCHES+=("$branch")
+    if should_exclude_branch "$branch"; then
+        print_warning "Branch $branch excluded (matches exclusion criteria)"
+        continue
     fi
+    BRANCHES+=("$branch")
 done <<< "$ALL_BRANCHES"
 
 if [ ${#BRANCHES[@]} -eq 0 ]; then
@@ -122,6 +155,13 @@ for BRANCH in "${BRANCHES[@]}"; do
     # Pull latest changes for this branch
     print_status "Pulling latest changes for $BRANCH..."
     git pull origin "$BRANCH" || true
+
+    # Check if the branch is already up-to-date with MAIN_BRANCH
+    if git merge-base --is-ancestor "$MAIN_BRANCH" "$BRANCH" 2>/dev/null; then
+        print_warning "Branch $BRANCH is already up-to-date with $MAIN_BRANCH. Skipping merge."
+        SUCCESSFUL_BRANCHES+=("$BRANCH")
+        continue
+    fi
 
     # Attempt to merge main
     print_status "Merging $MAIN_BRANCH into $BRANCH..."
