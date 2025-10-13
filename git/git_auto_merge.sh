@@ -4,7 +4,7 @@ set -e  # Exit on any error
 
 # Configuration
 MAIN_BRANCH="${1:-main}"  # First argument or default to 'main'
-EXCLUDED_BRANCHES=("backup/" "temp/" "archive/")  # Add patterns to exclude
+EXCLUDED_BRANCHES=("backup/" "temp/" "archive/" "stacked/")  # Add patterns to exclude
 EXCLUDED_GH_LABELS=("mergequeue")  # Add GitHub labels to exclude branches with these labels
 
 # Function to check if branch should be excluded
