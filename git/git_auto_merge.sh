@@ -85,6 +85,11 @@ if ! command -v jq >/dev/null 2>&1; then
     print_warning "jq is not installed. GitHub label checks will be skipped."
 fi
 
+# Check if npm is installed
+if ! command -v npm >/dev/null 2>&1; then
+    print_warning "npm is not installed. npm install will be skipped."
+fi
+
 # Store the current branch
 ORIGINAL_BRANCH=$(git branch --show-current)
 print_status "Main branch: $MAIN_BRANCH"
@@ -193,6 +198,17 @@ done
 # Return to original branch
 print_status "Returning to original branch: $ORIGINAL_BRANCH"
 git checkout "$ORIGINAL_BRANCH"
+
+# Run npm install if npm is available and package.json exists
+if command -v npm >/dev/null 2>&1 && [ -f "package.json" ]; then
+    print_status "Running npm install..."
+    if npm install; then
+        print_success "npm install successful"
+    else
+        print_error "npm install failed"
+        exit 1
+    fi
+fi
 
 # Print summary
 echo
