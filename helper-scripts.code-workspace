@@ -4,5 +4,14 @@
 			"path": "."
 		}
 	],
-	"settings": {}
+	"settings": {
+		"peacock.color": "01442f",
+		"workbench.colorCustomizations": {
+			"commandCenter.border": "#e7e7e799",
+			"titleBar.activeBackground": "#01442f",
+			"titleBar.activeForeground": "#e7e7e7",
+			"titleBar.inactiveBackground": "#01442f99",
+			"titleBar.inactiveForeground": "#e7e7e799"
+		}
+	}
 }
