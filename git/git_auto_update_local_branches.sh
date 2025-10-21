@@ -20,6 +20,9 @@ MERGE_CONFLICT_BRANCHES=()
 REBASE_CONFLICT_BRANCHES=()
 REBASED_BRANCHES=()
 
+# Cache for branch lookups
+declare -A TICKET_TO_BRANCH_MAP
+
 # Cache for tool availability
 GH_AVAILABLE=false
 NPM_AVAILABLE=false
@@ -69,6 +72,29 @@ verify_clean_working_directory() {
 # BRANCH IDENTIFICATION FUNCTIONS
 # ====================================
 
+# Build a map of ticket numbers to branch names for efficient lookup
+build_ticket_branch_map() {
+    local all_branches
+    all_branches=$(git branch --format='%(refname:short)')
+    
+    while IFS= read -r branch; do
+        # Skip stacked branches for parent matching
+        if is_stacked_branch "$branch"; then
+            continue
+        fi
+        
+        local ticket
+        ticket=$(extract_ticket_from_branch "$branch")
+        
+        if [ -n "$ticket" ]; then
+            # If multiple branches have same ticket, prefer non-stacked ones
+            if [ -z "${TICKET_TO_BRANCH_MAP[$ticket]}" ]; then
+                TICKET_TO_BRANCH_MAP[$ticket]="$branch"
+            fi
+        fi
+    done <<< "$all_branches"
+}
+
 # Check if a branch is a stacked branch
 # Stacked branches follow the pattern: stacked/parent-ticket/branch-name
 is_stacked_branch() {
@@ -107,7 +133,7 @@ extract_ticket_from_branch() {
 
 # Find the parent branch for a stacked branch
 # Returns the full branch name if found, empty string otherwise
-# Preference order: non-stacked branches, then oldest stacked branch
+# Uses the pre-built TICKET_TO_BRANCH_MAP for efficient lookup
 find_parent_branch() {
     local stacked_branch="$1"
     local parent_ticket
@@ -121,48 +147,13 @@ find_parent_branch() {
     local normalized_parent
     normalized_parent=$(normalize_ticket "$parent_ticket")
     
-    # Search through all branches to find the matching parent
-    local all_branches
-    all_branches=$(git branch --format='%(refname:short)')
-    
-    local found_branches=()
-    
-    while IFS= read -r branch; do
-        # Skip the stacked branch itself
-        if [ "$branch" = "$stacked_branch" ]; then
-            continue
-        fi
-        
-        # Extract and normalize ticket from this branch
-        local branch_ticket
-        branch_ticket=$(extract_ticket_from_branch "$branch")
-        
-        if [ -n "$branch_ticket" ] && [ "$branch_ticket" = "$normalized_parent" ]; then
-            found_branches+=("$branch")
-        fi
-    done <<< "$all_branches"
-    
-    # If no matches found, return error
-    if [ ${#found_branches[@]} -eq 0 ]; then
-        return 1
+    # Look up in the pre-built map
+    if [ -n "${TICKET_TO_BRANCH_MAP[$normalized_parent]}" ]; then
+        echo "${TICKET_TO_BRANCH_MAP[$normalized_parent]}"
+        return 0
     fi
     
-    # If multiple matches, prefer non-stacked branches
-    for branch in "${found_branches[@]}"; do
-        if ! is_stacked_branch "$branch"; then
-            echo "$branch"
-            return 0
-        fi
-    done
-    
-    # If only stacked branches found, warn and return first one
-    if [ ${#found_branches[@]} -gt 1 ]; then
-        print_warning "Multiple parent candidates found for $stacked_branch: ${found_branches[*]}"
-        print_warning "Using first match: ${found_branches[0]}"
-    fi
-    
-    echo "${found_branches[0]}"
-    return 0
+    return 1
 }
 
 # Check if a branch has been merged into main
@@ -311,13 +302,6 @@ merge_main_into_branch() {
         return 1
     fi
 
-    # Check for uncommitted changes after checkout
-    if ! verify_clean_working_directory; then
-        print_error "Uncommitted changes detected in $branch. Skipping. Please commit or stash changes first."
-        FAILED_BRANCHES+=("$branch")
-        return 1
-    fi
-
     # Pull latest changes for this branch
     if remote_branch_exists "$branch"; then
         print_status "Pulling latest changes for $branch..."
@@ -332,13 +316,6 @@ merge_main_into_branch() {
         fi
     else
         print_warning "Remote branch origin/$branch not found. Skipping pull."
-    fi
-
-    # Verify still clean after pull
-    if ! verify_clean_working_directory; then
-        print_error "Working directory not clean after pull in $branch"
-        FAILED_BRANCHES+=("$branch")
-        return 1
     fi
 
     # Check if the branch is already up-to-date with MAIN_BRANCH
@@ -367,13 +344,6 @@ merge_main_into_branch() {
 
     if git merge "$MAIN_BRANCH" --no-edit; then
         print_success "Merge successful for $branch"
-
-        # Verify working directory is still clean
-        if ! verify_clean_working_directory; then
-            print_error "Working directory not clean after merge in $branch"
-            FAILED_BRANCHES+=("$branch")
-            return 1
-        fi
 
         # Push the changes
         print_status "Pushing $branch..."
@@ -461,13 +431,6 @@ process_stacked_branch() {
         return 1
     fi
 
-    # Check for uncommitted changes after checkout
-    if ! verify_clean_working_directory; then
-        print_error "Uncommitted changes detected in $branch. Skipping. Please commit or stash changes first."
-        FAILED_BRANCHES+=("$branch")
-        return 1
-    fi
-
     # Pull latest changes for this branch
     if remote_branch_exists "$branch"; then
         print_status "Pulling latest changes for $branch..."
@@ -482,13 +445,6 @@ process_stacked_branch() {
         fi
     else
         print_warning "Remote branch origin/$branch not found. Skipping pull."
-    fi
-
-    # Verify still clean after pull
-    if ! verify_clean_working_directory; then
-        print_error "Working directory not clean after pull in $branch"
-        FAILED_BRANCHES+=("$branch")
-        return 1
     fi
     
     # Check if parent branch has been merged to main
@@ -509,13 +465,6 @@ process_stacked_branch() {
         
         if git rebase "$parent_branch"; then
             print_success "Rebase successful for $branch"
-            
-            # Verify working directory is clean
-            if ! verify_clean_working_directory; then
-                print_error "Working directory not clean after rebase in $branch"
-                FAILED_BRANCHES+=("$branch")
-                return 1
-            fi
             
             print_warning "Branch $branch has been rebased locally but NOT pushed."
             if [ "$NO_PUSH" = true ]; then
@@ -609,6 +558,10 @@ else
     git checkout "$MAIN_BRANCH"
     git pull origin "$MAIN_BRANCH"
 fi
+
+# Build ticket-to-branch map for efficient parent lookups
+print_status "Building branch lookup cache..."
+build_ticket_branch_map
 
 # ====================================
 # BRANCH COLLECTION AND CATEGORIZATION
