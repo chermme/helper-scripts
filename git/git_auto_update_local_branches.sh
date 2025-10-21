@@ -10,6 +10,7 @@ MAIN_BRANCH="${1:-main}"  # First argument or default to 'main'
 EXCLUDED_BRANCHES=("backup/" "temp/" "archive/")  # Add patterns to exclude
 EXCLUDED_GH_LABELS=("mergequeue")  # Add GitHub labels to exclude branches with these labels
 DRY_RUN="${DRY_RUN:-false}"  # Set to true for dry-run mode
+NO_PUSH="${NO_PUSH:-false}"  # Set to true to prevent pushing to remote
 
 # Arrays to track results
 IGNORED_BRANCHES=()
@@ -376,7 +377,11 @@ merge_main_into_branch() {
 
         # Push the changes
         print_status "Pushing $branch..."
-        if git push origin "$branch"; then
+        if [ "$NO_PUSH" = true ]; then
+            print_warning "Skipping push (NO_PUSH mode enabled)"
+            SUCCESSFUL_BRANCHES+=("$branch")
+            return 0
+        elif git push origin "$branch"; then
             print_success "Successfully pushed $branch"
             SUCCESSFUL_BRANCHES+=("$branch")
             return 0
@@ -513,7 +518,11 @@ process_stacked_branch() {
             fi
             
             print_warning "Branch $branch has been rebased locally but NOT pushed."
-            print_warning "To push: git push --force-with-lease origin $branch"
+            if [ "$NO_PUSH" = true ]; then
+                print_warning "To push when ready: git push --force-with-lease origin $branch"
+            else
+                print_warning "To push: git push --force-with-lease origin $branch"
+            fi
             REBASED_BRANCHES+=("$branch")
             return 0
         else
@@ -573,6 +582,10 @@ ORIGINAL_BRANCH=$(git branch --show-current)
 
 if [ "$DRY_RUN" = true ]; then
     print_dry_run "DRY-RUN MODE: No changes will be made"
+fi
+
+if [ "$NO_PUSH" = true ]; then
+    print_warning "NO_PUSH MODE: Changes will be made locally but not pushed to remote"
 fi
 
 print_status "Main branch: $MAIN_BRANCH"
@@ -746,6 +759,8 @@ fi
 echo
 if [ "$DRY_RUN" = true ]; then
     print_dry_run "Dry-run completed! No actual changes were made."
+elif [ "$NO_PUSH" = true ]; then
+    print_warning "Operation completed! Changes made locally but not pushed to remote."
 else
     print_status "Operation completed!"
 fi

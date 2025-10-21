@@ -8,6 +8,7 @@ A bash script that automatically updates all your local Git branches by merging 
 - ✅ Handles stacked branches with intelligent rebasing
 - ✅ Excludes specified branch patterns and GitHub PR labels
 - ✅ Dry-run mode to preview changes before applying
+- ✅ No-push mode to update locally without pushing to remote
 - ✅ Comprehensive error handling and conflict detection
 - ✅ Clean separation of merge vs rebase conflicts
 - ✅ Automatic npm install when dependencies change
@@ -31,6 +32,16 @@ Preview what would happen without making any changes:
 ```bash
 DRY_RUN=true ./git_auto_update_local_branches.sh
 ```
+
+### No-Push Mode
+
+Update all branches locally but don't push to remote:
+
+```bash
+NO_PUSH=true ./git_auto_update_local_branches.sh
+```
+
+This is useful when you want to review all changes before pushing them to remote.
 
 ## How It Works
 
@@ -169,21 +180,21 @@ The script includes comprehensive error handling:
 
 **Scenario 1**: Parent branch still exists
 
-```
+```text
 stacked/br1234/BR-5678 rebased onto BR-1234-parent-feature
 (Manual force-push required)
 ```
 
 **Scenario 2**: Parent merged to main
 
-```
+```text
 stacked/br1234/BR-5678 merged with main
 (Automatically pushed)
 ```
 
 **Scenario 3**: Parent deleted/not found
 
-```
+```text
 stacked/br1234/BR-5678 merged with main
 (Automatically pushed)
 ```
@@ -232,10 +243,22 @@ The script detects and aborts conflicts. You'll need to:
 DRY_RUN=true ./git_auto_update_local_branches.sh
 ```
 
+### Update locally without pushing
+
+```bash
+NO_PUSH=true ./git_auto_update_local_branches.sh
+```
+
 ### Update using 'develop' as main branch
 
 ```bash
 ./git_auto_update_local_branches.sh develop
+```
+
+### Combine dry-run and no-push
+
+```bash
+DRY_RUN=true NO_PUSH=true ./git_auto_update_local_branches.sh
 ```
 
 ### Exclude additional patterns
