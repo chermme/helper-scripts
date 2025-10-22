@@ -363,7 +363,19 @@ merge_main_into_branch() {
         fi
     fi
 
-    if git merge "$MAIN_BRANCH" --no-edit; then
+    local merge_succeeded=false
+    if [ "$VERBOSE" = true ]; then
+        if git merge "$MAIN_BRANCH" --no-edit; then
+            merge_succeeded=true
+        fi
+    else
+        # The 2>&1 redirects stderr to stdout, so both are captured by >/dev/null
+        if git merge "$MAIN_BRANCH" --no-edit >/dev/null 2>&1; then
+            merge_succeeded=true
+        fi
+    fi
+
+    if [ "$merge_succeeded" = true ]; then
         print_success "Merge successful for $branch"
 
         # Push the changes
