@@ -312,7 +312,7 @@ merge_main_into_branch() {
     if [ "$VERBOSE" = true ]; then
         git checkout "$branch"
     else
-        git checkout "$branch" 2>/dev/null
+        git checkout "$branch" >/dev/null 2>&1
     fi || {
         print_error "Failed to checkout $branch"
         FAILED_BRANCHES+=("$branch")
@@ -466,7 +466,7 @@ process_stacked_branch() {
     if [ "$VERBOSE" = true ]; then
         git checkout "$branch"
     else
-        git checkout "$branch" 2>/dev/null
+        git checkout "$branch" >/dev/null 2>&1
     fi || {
         print_error "Failed to checkout $branch"
         FAILED_BRANCHES+=("$branch")
