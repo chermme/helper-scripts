@@ -7,8 +7,9 @@ A bash script that automatically updates all your local Git branches by merging 
 - ✅ Automatically updates all local branches with latest changes from main
 - ✅ Handles stacked branches with intelligent rebasing
 - ✅ Excludes specified branch patterns and GitHub PR labels
-- ✅ Dry-run mode to preview changes before applying
-- ✅ No-push mode to update locally without pushing to remote
+- ✅ **Dry-run mode** to preview changes before applying
+- ✅ **No-push mode** to update locally without pushing to remote
+- ✅ **Verbose mode** for detailed debugging output
 - ✅ Comprehensive error handling and conflict detection
 - ✅ Clean separation of merge vs rebase conflicts
 - ✅ Automatic npm install when dependencies change
@@ -27,7 +28,7 @@ A bash script that automatically updates all your local Git branches by merging 
 
 ### Dry-Run Mode
 
-Preview what would happen without making any changes:
+Preview what would happen without making any changes. No local or remote changes will be made.
 
 ```bash
 DRY_RUN=true ./git_auto_update_local_branches.sh
@@ -35,13 +36,19 @@ DRY_RUN=true ./git_auto_update_local_branches.sh
 
 ### No-Push Mode
 
-Update all branches locally but don't push to remote:
+Update all branches locally but do not push to the remote repository. This is useful when you want to review all changes before pushing.
 
 ```bash
 NO_PUSH=true ./git_auto_update_local_branches.sh
 ```
 
-This is useful when you want to review all changes before pushing them to remote.
+### Verbose Mode
+
+By default, the script silences the output of `git` and `gh` commands to keep the summary clean. Use `VERBOSE` mode to see the detailed output for debugging.
+
+```bash
+VERBOSE=true ./git_auto_update_local_branches.sh
+```
 
 ## How It Works
 
@@ -49,13 +56,13 @@ This is useful when you want to review all changes before pushing them to remote
 
 The script processes all non-stacked branches first:
 
-1. Fetches latest changes from remote
-2. Updates the main branch
+1. Fetches latest changes from remote.
+2. Updates the `main` branch by pulling the latest changes.
 3. For each regular branch:
-   - Checks out the branch
-   - Pulls latest changes
-   - Merges main into the branch
-   - Pushes changes to remote
+   - Checks out the branch.
+   - Pulls latest changes for the branch.
+   - Merges `main` into the branch.
+   - Pushes changes to the remote.
 
 ### Phase 2: Stacked Branches
 
@@ -65,11 +72,11 @@ Example: `stacked/br4565/BR-4596-my-feature`
 
 The script handles stacked branches intelligently:
 
-1. **Sorts by dependencies**: Processes parent branches before their children
+1. **Sorts by dependencies**: Processes parent branches before their children.
 2. **Checks parent status**:
-   - If parent branch **exists**: Rebases the stacked branch onto the parent
-   - If parent **merged to main**: Merges main into the stacked branch
-   - If parent **not found**: Falls back to merging main
+   - If parent branch **exists**: Rebases the stacked branch onto the parent.
+   - If parent **merged to main**: Merges `main` into the stacked branch.
+   - If parent **not found**: Falls back to merging `main`.
 
 ### Stacked Branch Examples
 
@@ -91,32 +98,38 @@ Valid matches:
 
 ## Configuration
 
-Edit the configuration section at the top of the script:
+You can configure the script by editing the variables at the top of the file or by setting environment variables when you run it.
 
 ```bash
-MAIN_BRANCH="${1:-main}"  # Can be overridden with first argument
-EXCLUDED_BRANCHES=("backup/" "temp/" "archive/")  # Branch patterns to exclude
-EXCLUDED_GH_LABELS=("mergequeue")  # GitHub PR labels to exclude
+# --- Script Configuration ---
+MAIN_BRANCH="${1:-main}"
+EXCLUDED_BRANCHES=("backup/" "temp/" "archive/")
+EXCLUDED_GH_LABELS=("mergequeue")
+
+# --- Environment Variables ---
+DRY_RUN="${DRY_RUN:-false}"
+NO_PUSH="${NO_PUSH:-false}"
+VERBOSE="${VERBOSE:-false}"
 ```
 
 ### Excluding Branches
 
 Branches are excluded if they:
 
-- Match any pattern in `EXCLUDED_BRANCHES`
-- Are the main branch itself
-- Have a GitHub PR with any label in `EXCLUDED_GH_LABELS`
+- Match any pattern in `EXCLUDED_BRANCHES`.
+- Are the `main` branch itself.
+- Have a GitHub PR with any label in `EXCLUDED_GH_LABELS` (requires `gh` CLI).
 
 ## Output Summary
 
 After processing, the script displays:
 
-1. **Ignored branches**: Excluded based on patterns or labels
-2. **Updated branches**: Successfully merged and pushed
-3. **Rebased stacked branches**: Successfully rebased (require manual force-push)
-4. **Branches with merge conflicts**: Need manual conflict resolution
-5. **Branches with rebase conflicts**: Need manual conflict resolution
-6. **Branches that failed**: Other errors occurred
+1. **Ignored branches**: Excluded based on patterns or labels.
+2. **Updated branches**: Successfully merged and pushed.
+3. **Rebased stacked branches**: Successfully rebased (require manual force-push).
+4. **Branches with merge conflicts**: Need manual conflict resolution.
+5. **Branches with rebase conflicts**: Need manual conflict resolution.
+6. **Branches that failed**: Other errors occurred.
 
 ### Rebased Branches
 
@@ -130,22 +143,22 @@ The script will show you the exact commands to run.
 
 ## Exit Codes
 
-- `0`: Success (all branches processed without conflicts)
-- `1`: One or more branches failed to process
-- `10`: One or more branches have conflicts (merge or rebase)
+- `0`: Success (all branches processed without conflicts).
+- `1`: One or more branches failed to process due to an error.
+- `10`: One or more branches have merge or rebase conflicts that require manual resolution.
 
 ## Requirements
 
 ### Required
 
 - Git
-- Bash 3.2+
+- Bash 4.0+ (for associative arrays). The script uses `#!/usr/bin/env bash` to find the latest version in your `PATH`.
 
 ### Optional
 
-- **GitHub CLI (`gh`)**: For checking PR labels
-- **jq**: For parsing GitHub CLI output
-- **npm**: For automatic dependency updates
+- **GitHub CLI (`gh`)**: For checking PR labels.
+- **jq**: For parsing GitHub CLI output.
+- **npm**: For automatic dependency updates if `package.json` changes are detected.
 
 If optional tools are not installed, the script will skip related features and continue.
 
@@ -153,12 +166,12 @@ If optional tools are not installed, the script will skip related features and c
 
 The script includes comprehensive error handling:
 
-- ✅ Detects uncommitted changes before processing
-- ✅ Aborts merges/rebases on conflict
-- ✅ Validates stacked branch naming format
-- ✅ Handles missing remote branches
-- ✅ Returns to original branch on completion
-- ✅ Verifies working directory is clean after operations
+- ✅ Detects uncommitted changes before processing.
+- ✅ Aborts merges/rebases on conflict and cleans up.
+- ✅ Validates stacked branch naming format.
+- ✅ Handles missing remote branches.
+- ✅ Returns to your original branch on completion.
+- ✅ Verifies the working directory is clean after operations.
 
 ## Stacked Branch Workflow
 
@@ -170,7 +183,7 @@ The script includes comprehensive error handling:
    git checkout -b BR-1234-parent-feature
    ```
 
-2. Create a stacked branch on top:
+2. Create a stacked branch on top, referencing the parent's ticket number:
 
    ```bash
    git checkout -b stacked/br1234/BR-5678-child-feature
@@ -178,21 +191,21 @@ The script includes comprehensive error handling:
 
 ### What Happens During Update
 
-**Scenario 1**: Parent branch still exists
+**Scenario 1**: Parent branch still exists.
 
 ```text
 stacked/br1234/BR-5678 rebased onto BR-1234-parent-feature
 (Manual force-push required)
 ```
 
-**Scenario 2**: Parent merged to main
+**Scenario 2**: Parent has been merged to main.
 
 ```text
 stacked/br1234/BR-5678 merged with main
 (Automatically pushed)
 ```
 
-**Scenario 3**: Parent deleted/not found
+**Scenario 3**: Parent was deleted/not found.
 
 ```text
 stacked/br1234/BR-5678 merged with main
@@ -205,7 +218,7 @@ stacked/br1234/BR-5678 merged with main
 
 **Error**: `Invalid stacked branch format: stacked/BR-1234-feature`
 
-**Solution**: Stacked branches must have three parts:
+**Solution**: Stacked branches must have three parts: `stacked/parent-ticket/branch-name`.
 
 ```bash
 # Wrong
@@ -217,23 +230,23 @@ stacked/br1234/BR-1234-feature
 
 ### Parent Branch Not Found
 
-If the parent branch can't be found, the script will automatically fall back to merging from main. This is normal when the parent has been merged/deleted.
+If the parent branch can't be found, the script will automatically fall back to merging from `main`. This is normal when the parent has been merged and deleted.
 
 ### Merge/Rebase Conflicts
 
-The script detects and aborts conflicts. You'll need to:
+The script detects and aborts conflicting operations. You'll need to:
 
-1. Manually checkout the branch
-2. Resolve conflicts
-3. Run the script again (it will skip already-updated branches)
+1. Manually check out the branch.
+2. Resolve the conflicts.
+3. Run the script again (it will skip already-updated branches).
 
 ## Tips
 
-- Run in **dry-run mode** first to preview changes
-- Ensure your working directory is clean before running
-- Stacked branches are processed in dependency order automatically
-- The script is safe to re-run - it skips branches already up-to-date
-- Force-push rebased branches carefully after reviewing changes
+- Run in **dry-run mode** first to preview changes.
+- Ensure your working directory is clean before running.
+- Stacked branches are processed in dependency order automatically.
+- The script is safe to re-run—it skips branches that are already up-to-date.
+- Force-push rebased branches carefully after reviewing changes.
 
 ## Examples
 
@@ -247,6 +260,12 @@ DRY_RUN=true ./git_auto_update_local_branches.sh
 
 ```bash
 NO_PUSH=true ./git_auto_update_local_branches.sh
+```
+
+### See detailed output for debugging
+
+```bash
+VERBOSE=true ./git_auto_update_local_branches.sh
 ```
 
 ### Update using 'develop' as main branch

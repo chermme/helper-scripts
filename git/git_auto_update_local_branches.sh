@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 set -e  # Exit on any error
 
@@ -11,6 +11,7 @@ EXCLUDED_BRANCHES=("backup/" "temp/" "archive/")  # Add patterns to exclude
 EXCLUDED_GH_LABELS=("mergequeue")  # Add GitHub labels to exclude branches with these labels
 DRY_RUN="${DRY_RUN:-false}"  # Set to true for dry-run mode
 NO_PUSH="${NO_PUSH:-false}"  # Set to true to prevent pushing to remote
+VERBOSE="${VERBOSE:-false}" # Set to true for detailed git/gh output
 
 # Arrays to track results
 IGNORED_BRANCHES=()
@@ -159,8 +160,13 @@ find_parent_branch() {
 # Check if a branch has been merged into main
 is_merged_to_main() {
     local branch="$1"
-    git merge-base --is-ancestor "$branch" "$MAIN_BRANCH" 2>/dev/null && \
-    ! git merge-base --is-ancestor "$MAIN_BRANCH" "$branch" 2>/dev/null
+    # Get the merge base. If branch is merged, its tip will be an ancestor of main.
+    local merge_base
+    merge_base=$(git merge-base "$branch" "$MAIN_BRANCH")
+    local branch_commit
+    branch_commit=$(git rev-parse "$branch")
+
+    [ "$merge_base" = "$branch_commit" ]
 }
 
 # Check if remote branch exists
@@ -191,8 +197,15 @@ should_exclude_branch() {
     
     # Check for excluded GitHub labels (only if GH is available)
     if [ "$GH_AVAILABLE" = true ]; then
-        pr_info=$(gh pr list --head "$branch" --json number,labels --jq '.[0]' 2>/dev/null)
+        local pr_info
+        if [ "$VERBOSE" = true ]; then
+            pr_info=$(gh pr list --head "$branch" --json number,labels --jq '.[0]')
+        else
+            pr_info=$(gh pr list --head "$branch" --json number,labels --jq '.[0]' 2>/dev/null)
+        fi
+        
         if [ -n "$pr_info" ] && [ "$pr_info" != "null" ]; then
+            local labels
             labels=$(echo "$pr_info" | jq -r '.labels[].name' 2>/dev/null)
             for label in $labels; do
                 for excluded_label in "${EXCLUDED_GH_LABELS[@]}"; do
@@ -296,11 +309,15 @@ merge_main_into_branch() {
     fi
 
     # Checkout the branch
-    if ! git checkout "$branch" 2>/dev/null; then
+    if [ "$VERBOSE" = true ]; then
+        git checkout "$branch"
+    else
+        git checkout "$branch" 2>/dev/null
+    fi || {
         print_error "Failed to checkout $branch"
         FAILED_BRANCHES+=("$branch")
         return 1
-    fi
+    }
 
     # Pull latest changes for this branch
     if remote_branch_exists "$branch"; then
@@ -308,11 +325,15 @@ merge_main_into_branch() {
         if [ "$DRY_RUN" = true ]; then
             print_dry_run "Would pull origin/$branch"
         else
-            if ! git pull origin "$branch"; then
+            if [ "$VERBOSE" = true ]; then
+                git pull origin "$branch"
+            else
+                git pull origin "$branch" >/dev/null 2>&1
+            fi || {
                 print_error "Failed to pull $branch. There may be conflicts or connectivity issues."
                 FAILED_BRANCHES+=("$branch")
                 return 1
-            fi
+            }
         fi
     else
         print_warning "Remote branch origin/$branch not found. Skipping pull."
@@ -351,20 +372,25 @@ merge_main_into_branch() {
             print_warning "Skipping push (NO_PUSH mode enabled)"
             SUCCESSFUL_BRANCHES+=("$branch")
             return 0
-        elif git push origin "$branch"; then
+        else
+            if [ "$VERBOSE" = true ]; then
+                git push origin "$branch"
+            else
+                git push origin "$branch" >/dev/null 2>&1
+            fi || {
+                print_error "Failed to push $branch"
+                FAILED_BRANCHES+=("$branch")
+                return 1
+            }
             print_success "Successfully pushed $branch"
             SUCCESSFUL_BRANCHES+=("$branch")
             return 0
-        else
-            print_error "Failed to push $branch"
-            FAILED_BRANCHES+=("$branch")
-            return 1
         fi
     else
         print_warning "Merge conflict detected in $branch"
 
         # Abort the merge
-        git merge --abort
+        git merge --abort >/dev/null 2>&1
         
         # Verify abort was successful
         if ! verify_clean_working_directory; then
@@ -425,11 +451,15 @@ process_stacked_branch() {
     fi
 
     # Checkout the stacked branch
-    if ! git checkout "$branch" 2>/dev/null; then
+    if [ "$VERBOSE" = true ]; then
+        git checkout "$branch"
+    else
+        git checkout "$branch" 2>/dev/null
+    fi || {
         print_error "Failed to checkout $branch"
         FAILED_BRANCHES+=("$branch")
         return 1
-    fi
+    }
 
     # Pull latest changes for this branch
     if remote_branch_exists "$branch"; then
@@ -437,11 +467,15 @@ process_stacked_branch() {
         if [ "$DRY_RUN" = true ]; then
             print_dry_run "Would pull origin/$branch"
         else
-            if ! git pull origin "$branch"; then
+            if [ "$VERBOSE" = true ]; then
+                git pull origin "$branch"
+            else
+                git pull origin "$branch" >/dev/null 2>&1
+            fi || {
                 print_error "Failed to pull $branch. There may be conflicts or connectivity issues."
                 FAILED_BRANCHES+=("$branch")
                 return 1
-            fi
+            }
         fi
     else
         print_warning "Remote branch origin/$branch not found. Skipping pull."
@@ -476,7 +510,7 @@ process_stacked_branch() {
             return 0
         else
             print_warning "Rebase conflict detected in $branch"
-            git rebase --abort
+            git rebase --abort >/dev/null 2>&1
             
             # Verify abort was successful
             if ! verify_clean_working_directory; then
@@ -504,12 +538,12 @@ fi
 
 # Check and cache GitHub CLI availability
 if command -v gh >/dev/null 2>&1 && command -v jq >/dev/null 2>&1; then
-    if gh auth status >/dev/null 2>&1; then
-        GH_AVAILABLE=true
-        print_status "GitHub CLI is available and authenticated"
+    if [ "$VERBOSE" = true ]; then
+        gh auth status
     else
-        print_warning "GitHub CLI (gh) is installed but not authenticated. GitHub label checks will be skipped."
-    fi
+        gh auth status >/dev/null 2>&1
+    fi && GH_AVAILABLE=true && print_status "GitHub CLI is available and authenticated" || \
+    print_warning "GitHub CLI (gh) is not authenticated. GitHub label checks will be skipped."
 else
     if ! command -v gh >/dev/null 2>&1; then
         print_warning "GitHub CLI (gh) is not installed. GitHub label checks will be skipped."
@@ -547,7 +581,11 @@ print_status "Fetching latest changes..."
 if [ "$DRY_RUN" = true ]; then
     print_dry_run "Would fetch from origin"
 else
-    git fetch origin
+    if [ "$VERBOSE" = true ]; then
+        git fetch origin
+    else
+        git fetch origin >/dev/null 2>&1
+    fi
 fi
 
 # Update main branch
@@ -555,8 +593,13 @@ print_status "Updating $MAIN_BRANCH branch..."
 if [ "$DRY_RUN" = true ]; then
     print_dry_run "Would checkout and pull $MAIN_BRANCH"
 else
-    git checkout "$MAIN_BRANCH"
-    git pull origin "$MAIN_BRANCH"
+    if [ "$VERBOSE" = true ]; then
+        git checkout "$MAIN_BRANCH"
+        git pull origin "$MAIN_BRANCH"
+    else
+        git checkout "$MAIN_BRANCH" >/dev/null 2>&1
+        git pull origin "$MAIN_BRANCH" >/dev/null 2>&1
+    fi
 fi
 
 # Build ticket-to-branch map for efficient parent lookups
@@ -650,7 +693,11 @@ fi
 # Return to original branch
 print_status "Returning to original branch: $ORIGINAL_BRANCH"
 if [ "$DRY_RUN" = false ]; then
-    git checkout "$ORIGINAL_BRANCH"
+    if [ "$VERBOSE" = true ]; then
+        git checkout "$ORIGINAL_BRANCH"
+    else
+        git checkout "$ORIGINAL_BRANCH" >/dev/null 2>&1
+    fi
 fi
 
 # Run npm install if npm is available and package.json exists
