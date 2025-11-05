@@ -546,6 +546,13 @@ if ! git rev-parse --git-dir > /dev/null 2>&1; then
     exit 1
 fi
 
+# Check for uncommitted changes before starting
+if ! verify_clean_working_directory; then
+    print_error "You have uncommitted changes in your working directory."
+    print_error "Please commit or stash your changes before running this script."
+    exit 1
+fi
+
 # Check and cache GitHub CLI availability
 if command -v gh >/dev/null 2>&1 && command -v jq >/dev/null 2>&1; then
     if [ "$VERBOSE" = true ]; then
