@@ -121,6 +121,29 @@ show_pr_details() {
         echo -e "No checks"
     fi
     
+    # Try to extract Jira ticket from branch name and show status
+    # Looks for patterns like ABC-123, PROJ-456, etc.
+    ticket_key=$(echo "$branch" | grep -oE '[A-Z]+-[0-9]+' | head -1)
+    if [ -n "$ticket_key" ]; then
+        echo ""
+        echo -n "Jira Ticket: "
+        # Check if jira CLI is available
+        if command -v jira &> /dev/null; then
+            jira_data=$(jira issue view "$ticket_key" --raw 2>/dev/null)
+            if [ $? -eq 0 ] && [ -n "$jira_data" ]; then
+                jira_status=$(echo "$jira_data" | jq -r '.fields.status.name // "Unknown"')
+                jira_assignee=$(echo "$jira_data" | jq -r '.fields.assignee.displayName // "Unassigned"')
+                echo -e "${BLUE}$ticket_key${NC}"
+                echo "  Status: $jira_status"
+                echo "  Assignee: $jira_assignee"
+            else
+                echo -e "${YELLOW}$ticket_key${NC} (unable to fetch from Jira)"
+            fi
+        else
+            echo -e "${YELLOW}$ticket_key${NC} (jira CLI not installed)"
+        fi
+    fi
+    
     echo ""
 }
 
