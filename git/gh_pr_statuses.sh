@@ -1,7 +1,12 @@
 #!/bin/bash
 
 # PR Status Checker
-# Lists all open PRs with approval status, conflicts, and comments
+# Lists PR status with approval status, conflicts, and comments
+#
+# Usage:
+#   gh_pr_statuses.sh          - Show PR for current branch
+#   gh_pr_statuses.sh all      - Show all open PRs
+#   gh_pr_statuses.sh <ticket> - Show PR containing ticket number in branch name
 
 # Colors for output
 RED='\033[0;31m'
@@ -10,20 +15,10 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-echo "Fetching your open PRs..."
-echo ""
-
-# Get all open PRs for the current user
-prs=$(gh pr list --author "@me" --state open --json number,title,headRefName,reviewDecision,mergeable,url)
-
-# Check if there are any PRs
-if [ "$(echo "$prs" | jq '. | length')" -eq 0 ]; then
-    echo "No open PRs found."
-    exit 0
-fi
-
-# Iterate through each PR
-echo "$prs" | jq -r '.[] | @base64' | while read -r pr; do
+# Function to display PR details
+show_pr_details() {
+    local pr="$1"
+    
     _jq() {
         echo "$pr" | base64 --decode | jq -r "$1"
     }
@@ -43,24 +38,41 @@ echo "$prs" | jq -r '.[] | @base64' | while read -r pr; do
     
     # Check approval status
     echo -n "Approval Status: "
+    
+    # Get all reviews data once
+    reviews_data=$(gh pr view "$number" --json reviews)
+    
+    # Check current approvers (state == APPROVED)
+    current_approvers=$(echo "$reviews_data" | jq -r '.reviews[] | select(.state == "APPROVED") | .author.login' | sort -u | tr '\n' ', ' | sed 's/,$//')
+    
+    # Check dismissed approvals (previously approved but lost approval due to new commits/conflicts)
+    dismissed_approvers=$(echo "$reviews_data" | jq -r '.reviews[] | select(.state == "DISMISSED") | .author.login' | sort -u | tr '\n' ', ' | sed 's/,$//')
+    
     case "$review_decision" in
         "APPROVED")
             echo -e "${GREEN}✓ APPROVED${NC}"
-            # Get reviewers who approved
-            reviewers=$(gh pr view "$number" --json reviews --jq '.reviews[] | select(.state == "APPROVED") | .author.login' | sort -u | tr '\n' ', ' | sed 's/,$//')
-            echo "  Approved by: $reviewers"
+            echo "  Approved by: $current_approvers"
             ;;
         "CHANGES_REQUESTED")
             echo -e "${RED}✗ CHANGES REQUESTED${NC}"
             # Get reviewers who requested changes
-            reviewers=$(gh pr view "$number" --json reviews --jq '.reviews[] | select(.state == "CHANGES_REQUESTED") | .author.login' | sort -u | tr '\n' ', ' | sed 's/,$//')
-            echo "  Changes requested by: $reviewers"
+            change_requesters=$(echo "$reviews_data" | jq -r '.reviews[] | select(.state == "CHANGES_REQUESTED") | .author.login' | sort -u | tr '\n' ', ' | sed 's/,$//')
+            echo "  Changes requested by: $change_requesters"
+            if [ -n "$dismissed_approvers" ]; then
+                echo -e "  ${YELLOW}ℹ Previously approved by: $dismissed_approvers${NC} (approval dismissed)"
+            fi
             ;;
         "REVIEW_REQUIRED"|"")
             echo -e "${YELLOW}⚠ REVIEW REQUIRED${NC}"
+            if [ -n "$dismissed_approvers" ]; then
+                echo -e "  ${YELLOW}ℹ Previously approved by: $dismissed_approvers${NC} (approval dismissed)"
+            fi
             ;;
         *)
             echo -e "${YELLOW}⚠ $review_decision${NC}"
+            if [ -n "$dismissed_approvers" ]; then
+                echo -e "  ${YELLOW}ℹ Previously approved by: $dismissed_approvers${NC} (approval dismissed)"
+            fi
             ;;
     esac
     
@@ -83,8 +95,9 @@ echo "$prs" | jq -r '.[] | @base64' | while read -r pr; do
     
     # Check for unresolved review comments
     echo -n "Review Comments: "
-    unresolved=$(gh pr view "$number" --json reviewThreads --jq '[.reviewThreads[] | select(.isResolved == false)] | length')
-    total=$(gh pr view "$number" --json reviewThreads --jq '.reviewThreads | length')
+    comments_data=$(gh pr view "$number" --json comments --jq '.comments | length')
+    unresolved=$(gh pr view "$number" --json reviews --jq '[.reviews[] | select(.state == "COMMENTED" or .state == "CHANGES_REQUESTED")] | length')
+    total=$comments_data
     
     if [ "$unresolved" -gt 0 ]; then
         echo -e "${YELLOW}⚠ $unresolved unresolved${NC} (of $total total)"
@@ -109,15 +122,86 @@ echo "$prs" | jq -r '.[] | @base64' | while read -r pr; do
     fi
     
     echo ""
+}
+
+# Determine mode based on argument
+mode="current"
+search_term=""
+
+if [ "$1" = "all" ]; then
+    mode="all"
+elif [ -n "$1" ]; then
+    mode="search"
+    search_term="$1"
+fi
+
+# Get PRs based on mode
+case "$mode" in
+    "current")
+        current_branch=$(git branch --show-current 2>/dev/null)
+        if [ -z "$current_branch" ]; then
+            echo "Error: Not in a git repository or no branch checked out."
+            exit 1
+        fi
+        echo "Fetching PR for current branch: ${current_branch}..."
+        echo ""
+        prs=$(gh pr list --author "@me" --state open --head "$current_branch" --json number,title,headRefName,reviewDecision,mergeable,url)
+        ;;
+    "all")
+        echo "Fetching all your open PRs..."
+        echo ""
+        prs=$(gh pr list --author "@me" --state open --json number,title,headRefName,reviewDecision,mergeable,url)
+        ;;
+    "search")
+        echo "Searching for PRs containing: ${search_term}..."
+        echo ""
+        prs=$(gh pr list --author "@me" --state open --json number,title,headRefName,reviewDecision,mergeable,url | jq --arg term "$search_term" '[.[] | select(.headRefName | ascii_downcase | contains($term | ascii_downcase))]')
+        ;;
+esac
+
+# Check if there are any PRs, fallback to all PRs if current branch has none
+if [ "$(echo "$prs" | jq '. | length')" -eq 0 ]; then
+    if [ "$mode" = "current" ]; then
+        echo "No open PR found for branch: ${current_branch}"
+        echo "Falling back to all your open PRs..."
+        echo ""
+        prs=$(gh pr list --author "@me" --state open --json number,title,headRefName,reviewDecision,mergeable,url)
+        mode="all"
+        
+        if [ "$(echo "$prs" | jq '. | length')" -eq 0 ]; then
+            echo "No open PRs found."
+            exit 0
+        fi
+    else
+        case "$mode" in
+            "all")
+                echo "No open PRs found."
+                ;;
+            "search")
+                echo "No open PRs found matching: ${search_term}"
+                ;;
+        esac
+        exit 0
+    fi
+fi
+
+# Iterate through each PR
+echo "$prs" | jq -r '.[] | @base64' | while read -r pr; do
+    show_pr_details "$pr"
 done
 
 echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-echo ""
-echo "Summary:"
-total_prs=$(echo "$prs" | jq '. | length')
-approved=$(echo "$prs" | jq '[.[] | select(.reviewDecision == "APPROVED")] | length')
-conflicting=$(echo "$prs" | jq '[.[] | select(.mergeable == "CONFLICTING")] | length')
 
-echo "Total open PRs: $total_prs"
-echo -e "Approved: ${GREEN}$approved${NC}"
-echo -e "With conflicts: ${RED}$conflicting${NC}"
+# Only show summary for multiple PRs
+pr_count=$(echo "$prs" | jq '. | length')
+if [ "$pr_count" -gt 1 ]; then
+    echo ""
+    echo "Summary:"
+    total_prs=$(echo "$prs" | jq '. | length')
+    approved=$(echo "$prs" | jq '[.[] | select(.reviewDecision == "APPROVED")] | length')
+    conflicting=$(echo "$prs" | jq '[.[] | select(.mergeable == "CONFLICTING")] | length')
+
+    echo "Total open PRs: $total_prs"
+    echo -e "Approved: ${GREEN}$approved${NC}"
+    echo -e "With conflicts: ${RED}$conflicting${NC}"
+fi
