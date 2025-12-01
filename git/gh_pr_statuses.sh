@@ -182,30 +182,22 @@ case "$mode" in
         ;;
 esac
 
-# Check if there are any PRs, fallback to all PRs if current branch has none
+# Check if there are any PRs
 if [ "$(echo "$prs" | jq '. | length')" -eq 0 ]; then
-    if [ "$mode" = "current" ]; then
-        echo "No open PR found for branch: ${current_branch}"
-        echo "Falling back to all your open PRs..."
-        echo ""
-        prs=$(gh pr list --author "@me" --state open --json number,title,headRefName,reviewDecision,mergeable,url)
-        mode="all"
-        
-        if [ "$(echo "$prs" | jq '. | length')" -eq 0 ]; then
+    case "$mode" in
+        "current")
+            echo "No open PR found for branch: ${current_branch}"
+            echo ""
+            echo "Tip: Use 'pr-status all' to see all your open PRs"
+            ;;
+        "all")
             echo "No open PRs found."
-            exit 0
-        fi
-    else
-        case "$mode" in
-            "all")
-                echo "No open PRs found."
-                ;;
-            "search")
-                echo "No open PRs found matching: ${search_term}"
-                ;;
-        esac
-        exit 0
-    fi
+            ;;
+        "search")
+            echo "No open PRs found matching: ${search_term}"
+            ;;
+    esac
+    exit 0
 fi
 
 # Iterate through each PR
