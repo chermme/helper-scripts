@@ -197,21 +197,39 @@ should_exclude_branch() {
     if [ "$GH_AVAILABLE" = true ]; then
         local pr_info
         if [ "$VERBOSE" = true ]; then
-            pr_info=$(gh pr list --head "$branch" --json number,labels --jq '.[0]')
+            pr_info=$(gh pr list --head "$branch" --json number,labels,reviewDecision --jq '.[0]')
         else
-            pr_info=$(gh pr list --head "$branch" --json number,labels --jq '.[0]' 2>/dev/null)
+            pr_info=$(gh pr list --head "$branch" --json number,labels,reviewDecision --jq '.[0]' 2>/dev/null)
         fi
         
         if [ -n "$pr_info" ] && [ "$pr_info" != "null" ]; then
             local labels
             labels=$(echo "$pr_info" | jq -r '.labels[].name' 2>/dev/null)
+            local has_mergequeue=false
+            local has_blocked=false
+            
             for label in $labels; do
+                if [ "$label" = "blocked" ]; then
+                    has_blocked=true
+                fi
                 for excluded_label in "${EXCLUDED_GH_LABELS[@]}"; do
                     if [ "$label" = "$excluded_label" ]; then
-                        return 0  # exclude
+                        has_mergequeue=true
                     fi
                 done
             done
+            
+            # Only exclude mergequeue PRs if they're approved and not blocked
+            if [ "$has_mergequeue" = true ]; then
+                local review_decision
+                review_decision=$(echo "$pr_info" | jq -r '.reviewDecision' 2>/dev/null)
+                
+                if [ "$review_decision" = "APPROVED" ] && [ "$has_blocked" = false ]; then
+                    return 0  # exclude (approved mergequeue without blocked tag)
+                fi
+                # If mergequeue but not approved or has blocked tag, don't exclude
+                return 1
+            fi
         fi
     fi
     
