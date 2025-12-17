@@ -471,6 +471,35 @@ process_stacked_branch() {
     
     print_status "Parent branch for $branch: $parent_branch"
     
+    # Check if parent branch was successfully updated (only if it's a local branch that was processed)
+    local parent_in_branches=false
+    for b in "${REGULAR_BRANCHES[@]}" "${STACKED_BRANCHES[@]}"; do
+        if [ "$b" = "$parent_branch" ]; then
+            parent_in_branches=true
+            break
+        fi
+    done
+    
+    if [ "$parent_in_branches" = true ]; then
+        # Parent was in our list to process, check if it succeeded
+        local parent_has_conflicts=false
+        local parent_failed=false
+        
+        for failed in "${FAILED_BRANCHES[@]}" "${MERGE_CONFLICT_BRANCHES[@]}" "${REBASE_CONFLICT_BRANCHES[@]}"; do
+            if [ "$failed" = "$parent_branch" ]; then
+                parent_has_conflicts=true
+                break
+            fi
+        done
+        
+        if [ "$parent_has_conflicts" = true ]; then
+            print_error "Parent branch $parent_branch has conflicts or failed to update"
+            print_error "Cannot safely rebase $branch. Please resolve parent branch first."
+            FAILED_BRANCHES+=("$branch")
+            return 0
+        fi
+    fi
+    
     # Check for uncommitted changes before switching branches
     if ! verify_clean_working_directory; then
         print_error "Uncommitted changes detected. Skipping $branch. Please commit or stash changes first."
