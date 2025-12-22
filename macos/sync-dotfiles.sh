@@ -12,7 +12,7 @@ BACKUP_DIR="$HOME/.dotfiles_backup_$(date +%Y%m%d_%H%M%S)"
 
 # Files to sync
 FILES=(".zshrc" ".gitconfig" ".gitignore_global" ".hgignore_global" ".zprofile")
-DIRECTORIES=(".config" ".gnupg")
+DIRECTORIES=(".config" ".gnupg" ".git-workspaces")
 
 # Colors for output
 RED='\033[0;31m'
