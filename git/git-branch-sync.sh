@@ -3,6 +3,7 @@
 # Automatically tracks and syncs your Git branches across machines
 
 SYNC_DIR="$HOME/.git-workspaces"
+SCRIPT_ZSH_ALIAS="git-branch-sync"
 
 # ============================================================================
 # Get unique identifier for repo based on remote URL
@@ -183,23 +184,17 @@ install_hooks() {
     mkdir -p "$HOOKS_DIR"
 
     # Create post-checkout hook
-    cat > "$HOOKS_DIR/post-checkout" <<'HOOK_EOF'
+    cat > "$HOOKS_DIR/post-checkout" <<HOOK_EOF
 #!/bin/bash
 # Auto-update workspace on branch checkout
-SCRIPT_PATH="$HOME/.git-branch-sync.sh"
-if [ -f "$SCRIPT_PATH" ]; then
-    "$SCRIPT_PATH" update
-fi
+$SCRIPT_ZSH_ALIAS update
 HOOK_EOF
 
     # Create post-commit hook
-    cat > "$HOOKS_DIR/post-commit" <<'HOOK_EOF'
+    cat > "$HOOKS_DIR/post-commit" <<HOOK_EOF
 #!/bin/bash
 # Auto-update workspace on commit (catches new branches)
-SCRIPT_PATH="$HOME/.git-branch-sync.sh"
-if [ -f "$SCRIPT_PATH" ]; then
-    "$SCRIPT_PATH" update
-fi
+$SCRIPT_ZSH_ALIAS update
 HOOK_EOF
 
     chmod +x "$HOOKS_DIR"/*
