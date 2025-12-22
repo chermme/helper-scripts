@@ -197,21 +197,39 @@ should_exclude_branch() {
     if [ "$GH_AVAILABLE" = true ]; then
         local pr_info
         if [ "$VERBOSE" = true ]; then
-            pr_info=$(gh pr list --head "$branch" --json number,labels --jq '.[0]')
+            pr_info=$(gh pr list --head "$branch" --json number,labels,reviewDecision --jq '.[0]')
         else
-            pr_info=$(gh pr list --head "$branch" --json number,labels --jq '.[0]' 2>/dev/null)
+            pr_info=$(gh pr list --head "$branch" --json number,labels,reviewDecision --jq '.[0]' 2>/dev/null)
         fi
         
         if [ -n "$pr_info" ] && [ "$pr_info" != "null" ]; then
             local labels
             labels=$(echo "$pr_info" | jq -r '.labels[].name' 2>/dev/null)
+            local has_mergequeue=false
+            local has_blocked=false
+            
             for label in $labels; do
+                if [ "$label" = "blocked" ]; then
+                    has_blocked=true
+                fi
                 for excluded_label in "${EXCLUDED_GH_LABELS[@]}"; do
                     if [ "$label" = "$excluded_label" ]; then
-                        return 0  # exclude
+                        has_mergequeue=true
                     fi
                 done
             done
+            
+            # Only exclude mergequeue PRs if they're approved and not blocked
+            if [ "$has_mergequeue" = true ]; then
+                local review_decision
+                review_decision=$(echo "$pr_info" | jq -r '.reviewDecision' 2>/dev/null)
+                
+                if [ "$review_decision" = "APPROVED" ] && [ "$has_blocked" = false ]; then
+                    return 0  # exclude (approved mergequeue without blocked tag)
+                fi
+                # If mergequeue but not approved or has blocked tag, don't exclude
+                return 1
+            fi
         fi
     fi
     
@@ -452,6 +470,35 @@ process_stacked_branch() {
     fi
     
     print_status "Parent branch for $branch: $parent_branch"
+    
+    # Check if parent branch was successfully updated (only if it's a local branch that was processed)
+    local parent_in_branches=false
+    for b in "${REGULAR_BRANCHES[@]}" "${STACKED_BRANCHES[@]}"; do
+        if [ "$b" = "$parent_branch" ]; then
+            parent_in_branches=true
+            break
+        fi
+    done
+    
+    if [ "$parent_in_branches" = true ]; then
+        # Parent was in our list to process, check if it succeeded
+        local parent_has_conflicts=false
+        local parent_failed=false
+        
+        for failed in "${FAILED_BRANCHES[@]}" "${MERGE_CONFLICT_BRANCHES[@]}" "${REBASE_CONFLICT_BRANCHES[@]}"; do
+            if [ "$failed" = "$parent_branch" ]; then
+                parent_has_conflicts=true
+                break
+            fi
+        done
+        
+        if [ "$parent_has_conflicts" = true ]; then
+            print_error "Parent branch $parent_branch has conflicts or failed to update"
+            print_error "Cannot safely rebase $branch. Please resolve parent branch first."
+            FAILED_BRANCHES+=("$branch")
+            return 0
+        fi
+    fi
     
     # Check for uncommitted changes before switching branches
     if ! verify_clean_working_directory; then
