@@ -5,6 +5,13 @@
 SYNC_DIR="$HOME/.git-workspaces"
 SCRIPT_ZSH_ALIAS="git-branch-sync"
 
+# Get the absolute path to this script
+if [ -n "${BASH_SOURCE[0]}" ]; then
+    SCRIPT_PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
+else
+    SCRIPT_PATH="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
+fi
+
 # ============================================================================
 # Get unique identifier for repo based on remote URL
 # ============================================================================
@@ -120,7 +127,23 @@ restore_workspace() {
     # Restore each branch
     for branch in "${BRANCHES[@]}"; do
         if git show-ref --verify --quiet "refs/heads/$branch"; then
-            echo "  ✓ $branch (already exists)"
+            # Branch exists locally, update it
+            git checkout "$branch" --quiet 2>/dev/null
+            if git show-ref --verify --quiet "refs/remotes/origin/$branch"; then
+                PULL_OUTPUT=$(git pull --quiet origin "$branch" 2>&1)
+                PULL_STATUS=$?
+                if [ $PULL_STATUS -eq 0 ]; then
+                    if [[ "$PULL_OUTPUT" == *"Already up to date"* ]]; then
+                        echo "  ✓ $branch (already up-to-date)"
+                    else
+                        echo "  ✓ $branch (updated from origin)"
+                    fi
+                else
+                    echo "  ⚠ $branch (pull failed - may have conflicts)"
+                fi
+            else
+                echo "  ✓ $branch (exists locally, no remote)"
+            fi
         elif git show-ref --verify --quiet "refs/remotes/origin/$branch"; then
             git checkout -b "$branch" "origin/$branch" --quiet 2>/dev/null
             echo "  ✓ $branch (created from origin)"
@@ -134,6 +157,89 @@ restore_workspace() {
         git checkout "$CURRENT_BRANCH" --quiet
         echo ""
         echo "✓ Restored to branch: $CURRENT_BRANCH"
+    fi
+
+    # Check for local branches not in workspace file
+    echo ""
+    echo "Checking for branches not in workspace file..."
+    
+    # Get all local branches
+    ALL_LOCAL_BRANCHES=($(git branch --format='%(refname:short)'))
+    
+    # Find branches not in workspace file
+    EXTRA_BRANCHES=()
+    for local_branch in "${ALL_LOCAL_BRANCHES[@]}"; do
+        found=false
+        for workspace_branch in "${BRANCHES[@]}"; do
+            if [ "$local_branch" = "$workspace_branch" ]; then
+                found=true
+                break
+            fi
+        done
+        if [ "$found" = false ]; then
+            EXTRA_BRANCHES+=("$local_branch")
+        fi
+    done
+    
+    if [ ${#EXTRA_BRANCHES[@]} -eq 0 ]; then
+        echo "  No extra branches found"
+    else
+        echo "  Found ${#EXTRA_BRANCHES[@]} branch(es) not in workspace file:"
+        echo ""
+        
+        for branch in "${EXTRA_BRANCHES[@]}"; do
+            # Check if branch exists in remote origin
+            if ! git show-ref --verify --quiet "refs/remotes/origin/$branch"; then
+                echo "  ℹ  $branch (not in remote origin - skipping)"
+                continue
+            fi
+            
+            # Check if branch is ahead, behind, or up-to-date with origin
+            LOCAL_HASH=$(git rev-parse "$branch" 2>/dev/null)
+            REMOTE_HASH=$(git rev-parse "origin/$branch" 2>/dev/null)
+            
+            if [ "$LOCAL_HASH" = "$REMOTE_HASH" ]; then
+                STATUS="up-to-date with origin"
+            else
+                AHEAD=$(git rev-list --count "origin/$branch..$branch" 2>/dev/null || echo "0")
+                BEHIND=$(git rev-list --count "$branch..origin/$branch" 2>/dev/null || echo "0")
+                
+                if [ "$AHEAD" -gt 0 ]; then
+                    echo "  ℹ  $branch (ahead of origin by $AHEAD commit(s) - skipping)"
+                    continue
+                fi
+                
+                if [ "$BEHIND" -gt 0 ]; then
+                    STATUS="behind origin by $BEHIND commit(s)"
+                else
+                    STATUS="up-to-date with origin"
+                fi
+            fi
+            
+            # Offer to delete the branch
+            echo "  Branch: $branch"
+            echo "  Status: $STATUS"
+            read -p "  Delete this branch? (y/N): " -n 1 -r
+            echo ""
+            
+            if [[ $REPLY =~ ^[Yy]$ ]]; then
+                # Don't delete if it's currently checked out
+                CURRENT_CHECKED_OUT=$(git branch --show-current)
+                if [ "$branch" = "$CURRENT_CHECKED_OUT" ]; then
+                    echo "    ✗ Cannot delete currently checked out branch"
+                else
+                    git branch -d "$branch" 2>/dev/null
+                    if [ $? -eq 0 ]; then
+                        echo "    ✓ Deleted $branch"
+                    else
+                        echo "    ✗ Failed to delete $branch (use 'git branch -D $branch' to force)"
+                    fi
+                fi
+            else
+                echo "    Skipped"
+            fi
+            echo ""
+        done
     fi
 }
 
@@ -181,34 +287,40 @@ show_repo_id() {
 # Install Git hooks
 # ============================================================================
 install_hooks() {
-    HOOKS_DIR="$HOME/.git-templates/hooks"
+    local HOOKS_DIR="${1:-$HOME/.git-templates/hooks}"
+    local IS_GLOBAL="${2:-true}"
+    
     mkdir -p "$HOOKS_DIR"
 
     # Create post-checkout hook
     cat > "$HOOKS_DIR/post-checkout" <<HOOK_EOF
 #!/bin/bash
 # Auto-update workspace on branch checkout
-$SCRIPT_ZSH_ALIAS update
+"$SCRIPT_PATH" update
 HOOK_EOF
 
     # Create post-commit hook
     cat > "$HOOKS_DIR/post-commit" <<HOOK_EOF
 #!/bin/bash
 # Auto-update workspace on commit (catches new branches)
-$SCRIPT_ZSH_ALIAS update
+"$SCRIPT_PATH" update
 HOOK_EOF
 
-    chmod +x "$HOOKS_DIR"/*
+    chmod +x "$HOOKS_DIR/post-checkout" "$HOOKS_DIR/post-commit"
 
-    # Configure Git to use this template
-    git config --global init.templateDir "$HOME/.git-templates"
+    if [ "$IS_GLOBAL" = true ]; then
+        # Configure Git to use this template
+        git config --global init.templateDir "$HOME/.git-templates"
 
-    echo "✓ Git hooks installed in $HOOKS_DIR"
-    echo ""
-    echo "To apply hooks to existing repos, run in each repo:"
-    echo "  git init"
-    echo ""
-    echo "Or use: git-branch-sync install-repo"
+        echo "✓ Git hooks installed globally in $HOOKS_DIR"
+        echo ""
+        echo "To apply hooks to existing repos, run in each repo:"
+        echo "  git init"
+        echo ""
+        echo "Or use: git-branch-sync install-repo"
+    else
+        echo "✓ Hooks installed in current repository: $HOOKS_DIR"
+    fi
 }
 
 # ============================================================================
@@ -220,8 +332,10 @@ install_repo() {
         exit 1
     fi
 
-    git init
-    echo "✓ Hooks installed in current repository"
+    GIT_DIR=$(git rev-parse --git-dir)
+    HOOKS_DIR="$GIT_DIR/hooks"
+    
+    install_hooks "$HOOKS_DIR" false
 }
 
 # ============================================================================
