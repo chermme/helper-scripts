@@ -6,13 +6,22 @@
 set -e  # Exit on any error
 
 # Define paths
-ICLOUD_DOTFILES="$HOME/Library/Mobile Documents/com~apple~CloudDocs/dotfiles"
 HOME_DIR="$HOME"
+ICLOUD_DOCS="$HOME_DIR/Library/Mobile Documents/com~apple~CloudDocs"
+ICLOUD_DOTFILES="$ICLOUD_DOCS/dotfiles"
+ICLOUD_SYNC="$ICLOUD_DOCS/sync"
 BACKUP_DIR="$HOME/.dotfiles_backup_$(date +%Y%m%d_%H%M%S)"
 
-# Files to sync
+# Config dotfiles and dotfolders to sync
 FILES=(".zshrc" ".gitconfig" ".gitignore_global" ".hgignore_global" ".zprofile")
 DIRECTORIES=(".config" ".gnupg" ".git-workspaces")
+
+# Other folder pairs to sync (format: "SOURCE_PATH,DESTINATION_PATH")
+# SOURCE_PATH: absolute path to source folder
+# DESTINATION_PATH: relative path within iCloud sync directory
+FOLDER_PAIRS=(
+    "$HOME/Library/Application Support/Code/User/workspaceStorage,vscode/workspaceStorage"
+)
 
 # Colors for output
 RED='\033[0;31m'
@@ -89,6 +98,17 @@ create_dotfiles_dir() {
     fi
 }
 
+# Function to create iCloud sync directory
+create_sync_dir() {
+    if [ ! -d "$ICLOUD_SYNC" ]; then
+        print_status "Creating iCloud sync directory..."
+        mkdir -p "$ICLOUD_SYNC"
+        print_success "Created directory: $ICLOUD_SYNC"
+    else
+        print_status "iCloud sync directory already exists"
+    fi
+}
+
 # Function to handle directory migration and symlinking
 process_directory() {
     local dir="$1"
@@ -152,6 +172,95 @@ process_directory() {
         print_success "Created symlink: $home_dir -> $icloud_dir"
     fi
 }
+
+# Function to handle custom folder pair migration and symlinking
+process_folder_pair() {
+    local pair="$1"
+    local source_path="${pair%%,*}"  # Extract everything before the comma
+    local dest_relative="${pair##*,}"  # Extract everything after the comma
+    local icloud_path="$ICLOUD_SYNC/$dest_relative"
+    
+    print_status "Processing folder pair: $source_path -> $dest_relative..."
+    
+    # Expand variables in source path (properly quoted to handle spaces)
+    eval "source_path=\"$source_path\""
+    
+    # Check if iCloud path exists
+    if [ ! -d "$icloud_path" ]; then
+        # iCloud directory doesn't exist
+        if [ -e "$source_path" ]; then
+            # Source exists
+            if [ -L "$source_path" ]; then
+                print_warning "$source_path is already a symlink, removing it"
+                rm "$source_path"
+            elif [ -d "$source_path" ]; then
+                # It's a directory, move it to iCloud
+                print_status "Moving $source_path to iCloud sync..."
+                mkdir -p "$(dirname "$icloud_path")"
+                mv "$source_path" "$icloud_path"
+                print_success "Moved $source_path to $dest_relative"
+            else
+                # It's a file, backup and remove it
+                local backup_name="$(basename "$source_path")"
+                if [ -e "$source_path" ] && [ ! -L "$source_path" ]; then
+                    create_backup_dir
+                    print_status "Backing up $backup_name..."
+                    cp -R "$source_path" "$BACKUP_DIR/"
+                    print_success "Backed up $backup_name to $BACKUP_DIR"
+                fi
+                rm "$source_path"
+                print_warning "Removed file $source_path (expected directory)"
+            fi
+        else
+            # Neither exists, create empty directory in iCloud
+            print_status "Creating new empty directory at $dest_relative in iCloud sync..."
+            mkdir -p "$icloud_path"
+            print_success "Created empty directory at $dest_relative"
+        fi
+    else
+        # iCloud directory exists
+        if [ -e "$source_path" ]; then
+            if [ -L "$source_path" ]; then
+                # Source is already a symlink
+                local link_target=$(readlink "$source_path")
+                if [ "$link_target" = "$icloud_path" ]; then
+                    print_status "$dest_relative symlink already exists and points to correct location"
+                    return
+                else
+                    print_warning "Symlink exists but points to wrong location, fixing..."
+                    rm "$source_path"
+                fi
+            else
+                # Source exists but is not a symlink, backup and remove it
+                local backup_name="$(basename "$source_path")"
+                if [ -e "$source_path" ] && [ ! -L "$source_path" ]; then
+                    create_backup_dir
+                    print_status "Backing up $backup_name..."
+                    cp -R "$source_path" "$BACKUP_DIR/"
+                    print_success "Backed up $backup_name to $BACKUP_DIR"
+                fi
+                print_warning "$source_path exists, backing up and removing to prepare for symlink..."
+                rm -rf "$source_path"
+                print_success "Backed up and removed $source_path"
+            fi
+        fi
+    fi
+    
+    # Create symlink if it doesn't exist
+    if [ ! -L "$source_path" ]; then
+        print_status "Creating symlink for folder pair..."
+        mkdir -p "$(dirname "$source_path")"
+        ln -s "$icloud_path" "$source_path"
+        print_success "Created symlink: $source_path -> $icloud_path"
+    else
+        # Symlink already exists, verify it points to the right place
+        local link_target=$(readlink "$source_path")
+        if [ "$link_target" = "$icloud_path" ]; then
+            print_status "$dest_relative symlink already exists and points to correct location"
+        fi
+    fi
+}
+
 # Function to handle file migration and symlinking
 process_file() {
     local file="$1"
@@ -231,6 +340,9 @@ main() {
     # Create dotfiles directory in iCloud Drive
     create_dotfiles_dir
     
+    # Create sync directory in iCloud Drive for folder pairs
+    create_sync_dir
+    
     # Process each file
     for file in "${FILES[@]}"; do
         process_file "$file"
@@ -243,11 +355,22 @@ main() {
         echo
     done
     
+    # Process each folder pair
+    for pair in "${FOLDER_PAIRS[@]}"; do
+        process_folder_pair "$pair"
+        echo
+    done
+    
     print_success "Dotfiles sync completed successfully!"
     echo
     print_status "Your dotfiles are now synced with iCloud Drive at:"
     print_status "$ICLOUD_DOTFILES"
     echo
+    if [ ${#FOLDER_PAIRS[@]} -gt 0 ]; then
+        print_status "Folder pairs are synced at:"
+        print_status "$ICLOUD_SYNC"
+        echo
+    fi
     if [ -d "$BACKUP_DIR" ]; then
         print_status "Backups created at: $BACKUP_DIR"
         echo
