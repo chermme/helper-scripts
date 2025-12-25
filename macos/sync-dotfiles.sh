@@ -8,8 +8,8 @@ set -e  # Exit on any error
 # Define paths
 HOME_DIR="$HOME"
 ICLOUD_DOCS="$HOME_DIR/Library/Mobile Documents/com~apple~CloudDocs"
-ICLOUD_DOTFILES="$ICLOUD_DOCS/dotfiles"
 ICLOUD_SYNC="$ICLOUD_DOCS/sync"
+ICLOUD_DOTFILES="$ICLOUD_SYNC/dotfiles"
 BACKUP_DIR="$HOME/.dotfiles_backup_$(date +%Y%m%d_%H%M%S)"
 
 # Config dotfiles and dotfolders to sync
@@ -117,6 +117,15 @@ process_directory() {
     
     print_status "Processing directory $dir..."
     
+    # First, check if symlink exists but points to wrong location
+    if [ -L "$home_dir" ]; then
+        local link_target=$(readlink "$home_dir")
+        if [ "$link_target" != "$icloud_dir" ]; then
+            print_warning "$dir symlink points to wrong location ($link_target), fixing..."
+            rm "$home_dir"
+        fi
+    fi
+    
     # Check if directory exists in iCloud dotfiles
     if [ ! -d "$icloud_dir" ]; then
         # iCloud directory doesn't exist
@@ -184,6 +193,15 @@ process_folder_pair() {
     
     # Expand variables in source path (properly quoted to handle spaces)
     eval "source_path=\"$source_path\""
+    
+    # First, check if symlink exists but points to wrong location
+    if [ -L "$source_path" ]; then
+        local link_target=$(readlink "$source_path")
+        if [ "$link_target" != "$icloud_path" ]; then
+            print_warning "Symlink points to wrong location ($link_target), fixing..."
+            rm "$source_path"
+        fi
+    fi
     
     # Check if iCloud path exists
     if [ ! -d "$icloud_path" ]; then
@@ -268,6 +286,15 @@ process_file() {
     local icloud_file="$ICLOUD_DOTFILES/$file"
     
     print_status "Processing file $file..."
+    
+    # First, check if symlink exists but points to wrong location
+    if [ -L "$home_file" ]; then
+        local link_target=$(readlink "$home_file")
+        if [ "$link_target" != "$icloud_file" ]; then
+            print_warning "$file symlink points to wrong location ($link_target), fixing..."
+            rm "$home_file"
+        fi
+    fi
     
     # Check if file exists in iCloud dotfiles
     if [ ! -e "$icloud_file" ]; then
