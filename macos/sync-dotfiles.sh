@@ -19,9 +19,7 @@ DIRECTORIES=(".config" ".gnupg" ".git-workspaces")
 # Other folder pairs to sync (format: "SOURCE_PATH,DESTINATION_PATH")
 # SOURCE_PATH: absolute path to source folder
 # DESTINATION_PATH: relative path within iCloud sync directory
-FOLDER_PAIRS=(
-    "$HOME/Library/Application Support/Code/User/workspaceStorage,vscode/workspaceStorage"
-)
+FOLDER_PAIRS=()
 
 # Colors for output
 RED='\033[0;31m'
