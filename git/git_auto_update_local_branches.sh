@@ -11,6 +11,9 @@ DRY_RUN="${DRY_RUN:-false}"  # Set to true for dry-run mode
 NO_PUSH="${NO_PUSH:-false}"  # Set to true to prevent pushing to remote
 VERBOSE="${VERBOSE:-false}" # Set to true for detailed git/gh output
 
+# Git hooks to temporarily deactivate during operations
+HOOKS_TO_DEACTIVATE=("post-checkout" "post-merge" "pre-commit")
+
 # Arrays to track results
 IGNORED_BRANCHES=()
 SUCCESSFUL_BRANCHES=()
@@ -18,6 +21,7 @@ FAILED_BRANCHES=()
 MERGE_CONFLICT_BRANCHES=()
 REBASE_CONFLICT_BRANCHES=()
 REBASED_BRANCHES=()
+UPTODATE_WITH_PARENT_BRANCHES=()
 
 # Cache for branch lookups
 declare -A TICKET_TO_BRANCH_MAP
@@ -25,6 +29,9 @@ declare -A TICKET_TO_BRANCH_MAP
 # Cache for tool availability
 GH_AVAILABLE=false
 NPM_AVAILABLE=false
+
+# Track deactivated hooks for cleanup
+DEACTIVATED_HOOKS=()
 
 # ====================================
 # UTILITY FUNCTIONS
@@ -65,6 +72,71 @@ verify_clean_working_directory() {
         return 1
     fi
     return 0
+}
+
+# Deactivate git hooks by renaming them
+deactivate_git_hooks() {
+    local git_hooks_dir=".git/hooks"
+    
+    if [ ! -d "$git_hooks_dir" ]; then
+        print_warning "Git hooks directory not found at $git_hooks_dir"
+        return 0
+    fi
+    
+    print_status "Deactivating git hooks..."
+    
+    for hook in "${HOOKS_TO_DEACTIVATE[@]}"; do
+        local hook_path="$git_hooks_dir/$hook"
+        local disabled_path="$git_hooks_dir/$hook.disabled"
+        
+        if [ -f "$hook_path" ] && [ ! -f "$disabled_path" ]; then
+            if [ "$DRY_RUN" = true ]; then
+                print_dry_run "Would deactivate hook: $hook"
+            else
+                if mv "$hook_path" "$disabled_path"; then
+                    DEACTIVATED_HOOKS+=("$hook")
+                    print_status "Deactivated hook: $hook"
+                else
+                    print_warning "Failed to deactivate hook: $hook"
+                fi
+            fi
+        fi
+    done
+}
+
+# Reactivate git hooks by renaming them back
+reactivate_git_hooks() {
+    local git_hooks_dir=".git/hooks"
+    
+    if [ ${#DEACTIVATED_HOOKS[@]} -eq 0 ]; then
+        return 0
+    fi
+    
+    print_status "Reactivating git hooks..."
+    
+    for hook in "${DEACTIVATED_HOOKS[@]}"; do
+        local hook_path="$git_hooks_dir/$hook"
+        local disabled_path="$git_hooks_dir/$hook.disabled"
+        
+        if [ -f "$disabled_path" ]; then
+            if [ "$DRY_RUN" = true ]; then
+                print_dry_run "Would reactivate hook: $hook"
+            else
+                if mv "$disabled_path" "$hook_path"; then
+                    print_status "Reactivated hook: $hook"
+                else
+                    print_error "Failed to reactivate hook: $hook"
+                fi
+            fi
+        fi
+    done
+    
+    DEACTIVATED_HOOKS=()
+}
+
+# Cleanup function to ensure hooks are reactivated on exit
+cleanup_on_exit() {
+    reactivate_git_hooks
 }
 
 # ====================================
@@ -357,7 +429,7 @@ merge_main_into_branch() {
 
     # Check if the branch is already up-to-date with MAIN_BRANCH
     if git merge-base --is-ancestor "$MAIN_BRANCH" "$branch" 2>/dev/null; then
-        print_warning "Branch $branch is already up-to-date with $MAIN_BRANCH. Skipping merge."
+        print_success "Branch $branch is already up-to-date with $MAIN_BRANCH"
         SUCCESSFUL_BRANCHES+=("$branch")
         return 0
     fi
@@ -544,48 +616,58 @@ process_stacked_branch() {
         print_status "Merging $MAIN_BRANCH into $branch instead of rebasing..."
         merge_main_into_branch "$branch"
         return 0
-    else
-        print_status "Rebasing $branch onto $parent_branch..."
+    fi
+    
+    # Check if the branch is already up-to-date with parent
+    if git merge-base --is-ancestor "$parent_branch" "$branch" 2>/dev/null; then
+        print_success "Branch $branch is already up-to-date with parent $parent_branch"
+        UPTODATE_WITH_PARENT_BRANCHES+=("$branch")
+        return 0
+    fi
+    
+    print_status "Rebasing $branch onto $parent_branch..."
+    
+    if [ "$DRY_RUN" = true ]; then
+        print_dry_run "Would rebase $branch onto $parent_branch"
+        print_warning "Branch would need manual force-push after rebase"
+        REBASED_BRANCHES+=("$branch")
+        return 0
+    fi
+    
+    if git rebase "$parent_branch"; then
+        print_success "Rebase successful for $branch"
         
-        if [ "$DRY_RUN" = true ]; then
-            print_dry_run "Would rebase $branch onto $parent_branch"
-            print_warning "Branch would need manual force-push after rebase"
-            REBASED_BRANCHES+=("$branch")
-            return 0
-        fi
-        
-        if git rebase "$parent_branch"; then
-            print_success "Rebase successful for $branch"
-            
-            print_warning "Branch $branch has been rebased locally but NOT pushed."
-            if [ "$NO_PUSH" = true ]; then
-                print_warning "To push when ready: git push --force-with-lease origin $branch"
-            else
-                print_warning "To push: git push --force-with-lease origin $branch"
-            fi
-            REBASED_BRANCHES+=("$branch")
-            return 0
+        print_warning "Branch $branch has been rebased locally but NOT pushed."
+        if [ "$NO_PUSH" = true ]; then
+            print_warning "To push when ready: git push --force-with-lease origin $branch"
         else
-            print_warning "Rebase conflict detected in $branch"
-            git rebase --abort >/dev/null 2>&1
-            
-            # Verify abort was successful
-            if ! verify_clean_working_directory; then
-                print_error "Working directory not clean after rebase abort in $branch"
-                FAILED_BRANCHES+=("$branch")
-                return 1
-            fi
-            
-            print_status "Rebase aborted for $branch"
-            REBASE_CONFLICT_BRANCHES+=("$branch")
+            print_warning "To push: git push --force-with-lease origin $branch"
+        fi
+        REBASED_BRANCHES+=("$branch")
+        return 0
+    else
+        print_warning "Rebase conflict detected in $branch"
+        git rebase --abort >/dev/null 2>&1
+        
+        # Verify abort was successful
+        if ! verify_clean_working_directory; then
+            print_error "Working directory not clean after rebase abort in $branch"
+            FAILED_BRANCHES+=("$branch")
             return 1
         fi
+        
+        print_status "Rebase aborted for $branch"
+        REBASE_CONFLICT_BRANCHES+=("$branch")
+        return 1
     fi
 }
 
 # ====================================
 # INITIALIZATION AND CHECKS
 # ====================================
+
+# Set up trap to ensure hooks are reactivated on exit
+trap cleanup_on_exit EXIT
 
 # Check if we're in a git repository
 if ! git rev-parse --git-dir > /dev/null 2>&1; then
@@ -639,6 +721,9 @@ print_status "Main branch: $MAIN_BRANCH"
 print_status "Currently on branch: $ORIGINAL_BRANCH"
 print_status "Excluded patterns: ${EXCLUDED_BRANCHES[*]}"
 print_status "Excluded GitHub labels: ${EXCLUDED_GH_LABELS[*]}"
+
+# Deactivate git hooks before operations
+deactivate_git_hooks
 
 # Fetch latest changes
 print_status "Fetching latest changes..."
@@ -764,6 +849,9 @@ if [ "$DRY_RUN" = false ]; then
     fi
 fi
 
+# Reactivate git hooks
+reactivate_git_hooks
+
 # Run npm install if npm is available and package.json exists
 if [ "$NPM_AVAILABLE" = true ] && [ -f "package.json" ] && [ "$DRY_RUN" = false ]; then
     # Check if package-lock.json or node_modules changed
@@ -792,6 +880,11 @@ fi
 if [ ${#SUCCESSFUL_BRANCHES[@]} -gt 0 ]; then
     print_success "Updated branches (${#SUCCESSFUL_BRANCHES[@]}):"
     printf '%s\n' "${SUCCESSFUL_BRANCHES[@]}" | sed 's/^/  ✓ /'
+fi
+
+if [ ${#UPTODATE_WITH_PARENT_BRANCHES[@]} -gt 0 ]; then
+    print_success "Stacked branches already up-to-date with parent (${#UPTODATE_WITH_PARENT_BRANCHES[@]}):"
+    printf '%s\n' "${UPTODATE_WITH_PARENT_BRANCHES[@]}" | sed 's/^/  ✓ /'
 fi
 
 if [ ${#REBASED_BRANCHES[@]} -gt 0 ]; then

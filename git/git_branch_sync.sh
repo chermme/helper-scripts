@@ -5,6 +5,12 @@
 SYNC_DIR="$HOME/.git-workspaces"
 SCRIPT_ZSH_ALIAS="git-branch-sync"
 
+# Git hooks to temporarily deactivate during operations
+HOOKS_TO_DEACTIVATE=("post-checkout" "post-merge" "pre-commit")
+
+# Track deactivated hooks for cleanup
+DEACTIVATED_HOOKS=()
+
 # Get the absolute path to this script
 if [ -n "${BASH_SOURCE[0]}" ]; then
     SCRIPT_PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
@@ -34,6 +40,59 @@ get_repo_id() {
     # Remove protocol, replace special chars with underscores
     REPO_ID=$(echo "$REMOTE_URL" | sed -e 's|^.*://||' -e 's|^git@||' -e 's|:|/|' -e 's|\.git$||' -e 's|[^a-zA-Z0-9/_-]|_|g')
     echo "$REPO_ID"
+}
+
+# ============================================================================
+# Git Hooks Management
+# ============================================================================
+
+# Deactivate git hooks by renaming them
+deactivate_git_hooks() {
+    local git_hooks_dir=".git/hooks"
+    
+    if [ ! -d "$git_hooks_dir" ]; then
+        return 0
+    fi
+    
+    echo "Deactivating git hooks..."
+    
+    for hook in "${HOOKS_TO_DEACTIVATE[@]}"; do
+        local hook_path="$git_hooks_dir/$hook"
+        local disabled_path="$git_hooks_dir/$hook.disabled"
+        
+        if [ -f "$hook_path" ] && [ ! -f "$disabled_path" ]; then
+            if mv "$hook_path" "$disabled_path" 2>/dev/null; then
+                DEACTIVATED_HOOKS+=("$hook")
+            fi
+        fi
+    done
+}
+
+# Reactivate git hooks by renaming them back
+reactivate_git_hooks() {
+    local git_hooks_dir=".git/hooks"
+    
+    if [ ${#DEACTIVATED_HOOKS[@]} -eq 0 ]; then
+        return 0
+    fi
+    
+    echo "Reactivating git hooks..."
+    
+    for hook in "${DEACTIVATED_HOOKS[@]}"; do
+        local hook_path="$git_hooks_dir/$hook"
+        local disabled_path="$git_hooks_dir/$hook.disabled"
+        
+        if [ -f "$disabled_path" ]; then
+            mv "$disabled_path" "$hook_path" 2>/dev/null
+        fi
+    done
+    
+    DEACTIVATED_HOOKS=()
+}
+
+# Cleanup function to ensure hooks are reactivated on exit
+cleanup_on_exit() {
+    reactivate_git_hooks
 }
 
 # ============================================================================
@@ -79,6 +138,9 @@ EOF
 # Restore workspace for current repo
 # ============================================================================
 restore_workspace() {
+    # Set up trap to ensure hooks are reactivated on exit
+    trap cleanup_on_exit EXIT
+    
     REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
     if [ -z "$REPO_ROOT" ]; then
         echo "Error: Not in a Git repository"
@@ -119,6 +181,9 @@ restore_workspace() {
     done < "$WORKSPACE_FILE"
 
     echo "Found ${#BRANCHES[@]} branches to restore"
+    
+    # Deactivate git hooks before operations
+    deactivate_git_hooks
     
     # Fetch from all remotes
     echo "Fetching from remotes..."
@@ -241,6 +306,9 @@ restore_workspace() {
             echo ""
         done
     fi
+    
+    # Reactivate git hooks
+    reactivate_git_hooks
 }
 
 # ============================================================================
