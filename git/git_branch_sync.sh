@@ -96,9 +96,9 @@ cleanup_on_exit() {
 }
 
 # ============================================================================
-# Core update function - called by Git hooks
+# Core save function - called by Git hooks
 # ============================================================================
-update_workspace() {
+save_workspace() {
     REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
     if [ -z "$REPO_ROOT" ]; then
         echo "Error: Not in a Git repository"
@@ -131,7 +131,7 @@ EOF
 
     echo "$BRANCHES" >> "$WORKSPACE_FILE"
     
-    echo "✓ Workspace updated: $WORKSPACE_FILE"
+    echo "✓ Workspace saved: $WORKSPACE_FILE"
 }
 
 # ============================================================================
@@ -363,15 +363,15 @@ install_hooks() {
     # Create post-checkout hook
     cat > "$HOOKS_DIR/post-checkout" <<HOOK_EOF
 #!/bin/bash
-# Auto-update workspace on branch checkout
-"$SCRIPT_PATH" update
+# Auto-save workspace on branch checkout
+"$SCRIPT_PATH" save
 HOOK_EOF
 
     # Create post-commit hook
     cat > "$HOOKS_DIR/post-commit" <<HOOK_EOF
 #!/bin/bash
-# Auto-update workspace on commit (catches new branches)
-"$SCRIPT_PATH" update
+# Auto-save workspace on commit (catches new branches)
+"$SCRIPT_PATH" save
 HOOK_EOF
 
     chmod +x "$HOOKS_DIR/post-checkout" "$HOOKS_DIR/post-commit"
@@ -424,8 +424,8 @@ sync_info() {
 # Main command dispatcher
 # ============================================================================
 case "${1:-}" in
-    update)
-        update_workspace
+    save)
+        save_workspace
         ;;
     restore)
         restore_workspace
@@ -453,7 +453,7 @@ case "${1:-}" in
         echo "Commands:"
         echo "  install       Install Git hooks globally (run once per machine)"
         echo "  install-repo  Install hooks in current repository"
-        echo "  update        Manually update workspace for current repo"
+        echo "  save          Manually save workspace snapshot for current repo"
         echo "  restore       Restore branches from workspace file"
         echo "  list          List all tracked workspaces"
         echo "  repo-id       Show repository ID for current repo"
