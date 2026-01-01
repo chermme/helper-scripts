@@ -23,8 +23,8 @@ REBASE_CONFLICT_BRANCHES=()
 REBASED_BRANCHES=()
 UPTODATE_WITH_PARENT_BRANCHES=()
 
-# Cache for branch lookups
-declare -A TICKET_TO_BRANCH_MAP
+# Cache for branch lookups (using newline-separated format: ticket|branch)
+TICKET_TO_BRANCH_MAP=""
 
 # Cache for tool availability
 GH_AVAILABLE=false
@@ -148,6 +148,9 @@ build_ticket_branch_map() {
     local all_branches
     all_branches=$(git branch --format='%(refname:short)')
     
+    TICKET_TO_BRANCH_MAP=""
+    local count=0
+    
     while IFS= read -r branch; do
         # Skip stacked branches for parent matching
         if is_stacked_branch "$branch"; then
@@ -158,9 +161,18 @@ build_ticket_branch_map() {
         ticket=$(extract_ticket_from_branch "$branch")
         
         if [ -n "$ticket" ]; then
-            # If multiple branches have same ticket, prefer non-stacked ones
-            if [ -z "${TICKET_TO_BRANCH_MAP[$ticket]}" ]; then
-                TICKET_TO_BRANCH_MAP[$ticket]="$branch"
+            # Check if ticket already exists in map
+            local existing
+            existing=$(echo "$TICKET_TO_BRANCH_MAP" | grep -m1 "^${ticket}|" | cut -d'|' -f2)
+            
+            if [ -z "$existing" ]; then
+                # Add to map: ticket|branch
+                if [ -z "$TICKET_TO_BRANCH_MAP" ]; then
+                    TICKET_TO_BRANCH_MAP="${ticket}|${branch}"
+                else
+                    TICKET_TO_BRANCH_MAP="${TICKET_TO_BRANCH_MAP}"$'\n'"${ticket}|${branch}"
+                fi
+                count=$((count + 1))
             fi
         fi
     done <<< "$all_branches"
@@ -218,10 +230,18 @@ find_parent_branch() {
     local normalized_parent
     normalized_parent=$(normalize_ticket "$parent_ticket")
     
-    # Look up in the pre-built map
-    if [ -n "${TICKET_TO_BRANCH_MAP[$normalized_parent]}" ]; then
-        echo "${TICKET_TO_BRANCH_MAP[$normalized_parent]}"
-        return 0
+    # Look up in the map (format: ticket|branch)
+    local found_branch
+    found_branch=$(echo "$TICKET_TO_BRANCH_MAP" | grep -m1 "^${normalized_parent}|" | cut -d'|' -f2)
+    
+    if [ -n "$found_branch" ]; then
+        # Verify the branch actually exists
+        if git rev-parse --verify "$found_branch" >/dev/null 2>&1; then
+            echo "$found_branch"
+            return 0
+        else
+            return 1
+        fi
     fi
     
     return 1
