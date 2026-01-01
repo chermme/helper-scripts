@@ -706,8 +706,24 @@ else
     print_warning "npm is not installed. npm install will be skipped."
 fi
 
-# Store the current branch
+# Store the current branch and directory
 ORIGINAL_BRANCH=$(git branch --show-current)
+ORIGINAL_DIR=$(pwd)
+
+# Navigate to git root
+GIT_ROOT=$(git rev-parse --show-toplevel)
+if [ $? -ne 0 ]; then
+    print_error "Not in a git repository"
+    exit 1
+fi
+
+if [ "$ORIGINAL_DIR" != "$GIT_ROOT" ]; then
+    print_status "Navigating to git root: $GIT_ROOT"
+    cd "$GIT_ROOT" || {
+        print_error "Failed to navigate to git root"
+        exit 1
+    }
+fi
 
 if [ "$DRY_RUN" = true ]; then
     print_dry_run "DRY-RUN MODE: No changes will be made"
@@ -851,6 +867,14 @@ fi
 
 # Reactivate git hooks
 reactivate_git_hooks
+
+# Navigate back to original directory
+if [ "$ORIGINAL_DIR" != "$GIT_ROOT" ]; then
+    print_status "Returning to original directory: $ORIGINAL_DIR"
+    cd "$ORIGINAL_DIR" || {
+        print_warning "Failed to return to original directory"
+    }
+fi
 
 # Run npm install if npm is available and package.json exists
 if [ "$NPM_AVAILABLE" = true ] && [ -f "package.json" ] && [ "$DRY_RUN" = false ]; then
