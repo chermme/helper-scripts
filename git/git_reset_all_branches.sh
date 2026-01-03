@@ -132,16 +132,6 @@ cleanup_on_exit() {
     reactivate_git_hooks
 }
 
-# Check if branch has uncommitted changes
-has_uncommitted_changes() {
-    local branch="$1"
-    git checkout "$branch" --quiet 2>/dev/null
-    if [[ -n $(git status --porcelain) ]]; then
-        return 0
-    fi
-    return 1
-}
-
 # Check if branch is ahead of origin
 is_ahead_of_origin() {
     local branch="$1"
@@ -167,6 +157,93 @@ prompt_user() {
     else
         return 1
     fi
+}
+
+# Process a single branch for reset
+# Args: branch_name, is_current_branch (true/false)
+process_branch_reset() {
+    local branch="$1"
+    local is_current="$2"
+    
+    # Skip excluded branches
+    if should_exclude_branch "$branch"; then
+        print_warning "Skipping excluded branch: $branch"
+        SKIPPED_BRANCHES+=("$branch")
+        return
+    fi
+    
+    # Check if remote branch exists
+    if ! git show-ref --verify --quiet "refs/remotes/origin/$branch"; then
+        print_warning "Branch '$branch' has no remote counterpart, skipping"
+        SKIPPED_BRANCHES+=("$branch")
+        return
+    fi
+    
+    print_status "Processing branch: $branch"
+    
+    # Switch to branch only if not current
+    if [ "$is_current" = false ] && [ "$DRY_RUN" = false ]; then
+        git checkout "$branch" --quiet 2>/dev/null
+        if [ $? -ne 0 ]; then
+            print_error "Failed to checkout branch: $branch"
+            FAILED_BRANCHES+=("$branch")
+            return
+        fi
+    fi
+    
+    # Check for uncommitted changes
+    needs_confirmation=false
+    confirmation_reason=""
+    
+    if [ "$DRY_RUN" = false ]; then
+        if [[ -n $(git status --porcelain) ]]; then
+            needs_confirmation=true
+            confirmation_reason="uncommitted changes"
+            print_warning "Branch '$branch' has uncommitted changes"
+        fi
+        
+        # Check if branch is ahead of origin
+        if is_ahead_of_origin "$branch"; then
+            needs_confirmation=true
+            if [ -n "$confirmation_reason" ]; then
+                confirmation_reason="$confirmation_reason and local commits ahead of origin"
+            else
+                confirmation_reason="local commits ahead of origin"
+            fi
+            
+            local ahead_count
+            ahead_count=$(git rev-list "origin/$branch..$branch" --count)
+            print_warning "Branch '$branch' is $ahead_count commit(s) ahead of origin"
+        fi
+    fi
+    
+    # Prompt if needed
+    if [ "$needs_confirmation" = true ]; then
+        echo ""
+        if ! prompt_user "Branch '$branch' has $confirmation_reason. Reset will discard these changes."; then
+            print_status "Skipping branch: $branch (not confirmed)"
+            USER_DECLINED_BRANCHES+=("$branch")
+            echo ""
+            return
+        fi
+        echo ""
+    fi
+    
+    # Reset branch to origin
+    if [ "$DRY_RUN" = true ]; then
+        print_dry_run "Would reset branch '$branch' to origin/$branch"
+        RESET_BRANCHES+=("$branch")
+    else
+        if git reset --hard "origin/$branch" --quiet 2>/dev/null; then
+            print_success "Reset branch '$branch' to origin/$branch"
+            RESET_BRANCHES+=("$branch")
+        else
+            print_error "Failed to reset branch: $branch"
+            FAILED_BRANCHES+=("$branch")
+        fi
+    fi
+    
+    echo ""
 }
 
 # ====================================
@@ -210,92 +287,29 @@ ALL_BRANCHES=$(git branch --format='%(refname:short)')
 print_status "Processing branches..."
 echo ""
 
+# Process current branch first (to handle cases where repo is in weird state)
+if [ -n "$ORIGINAL_BRANCH" ]; then
+    print_status "Processing current branch first: $ORIGINAL_BRANCH"
+    process_branch_reset "$ORIGINAL_BRANCH" true
+fi
+
+# Process all other branches
 while IFS= read -r branch; do
-    # Skip excluded branches
-    if should_exclude_branch "$branch"; then
-        print_warning "Skipping excluded branch: $branch"
-        SKIPPED_BRANCHES+=("$branch")
+    # Skip if it's the current branch (already processed)
+    if [ "$branch" = "$ORIGINAL_BRANCH" ]; then
         continue
     fi
     
-    # Check if remote branch exists
-    if ! git show-ref --verify --quiet "refs/remotes/origin/$branch"; then
-        print_warning "Branch '$branch' has no remote counterpart, skipping"
-        SKIPPED_BRANCHES+=("$branch")
-        continue
-    fi
-    
-    print_status "Processing branch: $branch"
-    
-    # Switch to branch
-    if [ "$DRY_RUN" = false ]; then
-        git checkout "$branch" --quiet 2>/dev/null
-        if [ $? -ne 0 ]; then
-            print_error "Failed to checkout branch: $branch"
-            FAILED_BRANCHES+=("$branch")
-            continue
-        fi
-    fi
-    
-    # Check for uncommitted changes
-    needs_confirmation=false
-    confirmation_reason=""
-    
-    if [ "$DRY_RUN" = false ]; then
-        if has_uncommitted_changes "$branch"; then
-            needs_confirmation=true
-            confirmation_reason="uncommitted changes"
-            print_warning "Branch '$branch' has uncommitted changes"
-        fi
-        
-        # Check if branch is ahead of origin
-        if is_ahead_of_origin "$branch"; then
-            needs_confirmation=true
-            if [ -n "$confirmation_reason" ]; then
-                confirmation_reason="$confirmation_reason and local commits ahead of origin"
-            else
-                confirmation_reason="local commits ahead of origin"
-            fi
-            
-            local ahead_count
-            ahead_count=$(git rev-list "origin/$branch..$branch" --count)
-            print_warning "Branch '$branch' is $ahead_count commit(s) ahead of origin"
-        fi
-    fi
-    
-    # Prompt if needed
-    if [ "$needs_confirmation" = true ]; then
-        echo ""
-        if ! prompt_user "Branch '$branch' has $confirmation_reason. Reset will discard these changes."; then
-            print_status "Skipping branch: $branch (not confirmed)"
-            USER_DECLINED_BRANCHES+=("$branch")
-            echo ""
-            continue
-        fi
-        echo ""
-    fi
-    
-    # Reset branch to origin
-    if [ "$DRY_RUN" = true ]; then
-        print_dry_run "Would reset branch '$branch' to origin/$branch"
-        RESET_BRANCHES+=("$branch")
-    else
-        if git reset --hard "origin/$branch" --quiet 2>/dev/null; then
-            print_success "Reset branch '$branch' to origin/$branch"
-            RESET_BRANCHES+=("$branch")
-        else
-            print_error "Failed to reset branch: $branch"
-            FAILED_BRANCHES+=("$branch")
-        fi
-    fi
-    
-    echo ""
+    process_branch_reset "$branch" false
 done <<< "$ALL_BRANCHES"
 
-# Return to original branch
+# Return to original branch if it still exists and wasn't the one we're on
 if [ "$DRY_RUN" = false ] && [ -n "$ORIGINAL_BRANCH" ]; then
-    print_status "Returning to original branch: $ORIGINAL_BRANCH"
-    git checkout "$ORIGINAL_BRANCH" --quiet 2>/dev/null
+    CURRENT=$(git branch --show-current)
+    if [ "$CURRENT" != "$ORIGINAL_BRANCH" ]; then
+        print_status "Returning to original branch: $ORIGINAL_BRANCH"
+        git checkout "$ORIGINAL_BRANCH" --quiet 2>/dev/null
+    fi
 fi
 
 # Print summary
