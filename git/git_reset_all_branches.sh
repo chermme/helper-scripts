@@ -267,7 +267,7 @@ while IFS= read -r branch; do
     if [ "$needs_confirmation" = true ]; then
         echo ""
         if ! prompt_user "Branch '$branch' has $confirmation_reason. Reset will discard these changes."; then
-            print_status "User declined to reset branch: $branch"
+            print_status "Skipping branch: $branch (not confirmed)"
             USER_DECLINED_BRANCHES+=("$branch")
             echo ""
             continue
@@ -317,7 +317,7 @@ if [ ${#RESET_BRANCHES[@]} -gt 0 ]; then
 fi
 
 if [ ${#USER_DECLINED_BRANCHES[@]} -gt 0 ]; then
-    print_warning "Branches declined by user: ${#USER_DECLINED_BRANCHES[@]}"
+    print_warning "Branches not confirmed (skipped): ${#USER_DECLINED_BRANCHES[@]}"
     for branch in "${USER_DECLINED_BRANCHES[@]}"; do
         echo "  - $branch"
     done
