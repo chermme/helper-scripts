@@ -150,7 +150,7 @@ prompt_user() {
     local response
     
     echo -e "${YELLOW}$message${NC}"
-    read -p "Continue? [y/N]: " -r response
+    read -p "Continue? [y/N]: " -r response < /dev/tty
     
     if [[ "$response" =~ ^[Yy]$ ]]; then
         return 0
