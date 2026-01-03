@@ -143,6 +143,38 @@ is_ahead_of_origin() {
     return 1
 }
 
+# Get branch status relative to origin (ahead/behind)
+# Returns a formatted string like "(2 ahead, 3 behind)", "(up-to-date)", or empty string
+get_branch_status() {
+    local branch="$1"
+    local ahead behind status_parts=()
+    
+    ahead=$(git rev-list "origin/$branch..$branch" --count 2>/dev/null)
+    behind=$(git rev-list "$branch..origin/$branch" --count 2>/dev/null)
+    
+    if [ -n "$ahead" ] && [ "$ahead" -gt 0 ]; then
+        status_parts+=("$ahead ahead")
+    fi
+    
+    if [ -n "$behind" ] && [ "$behind" -gt 0 ]; then
+        status_parts+=("$behind behind")
+    fi
+    
+    if [ ${#status_parts[@]} -gt 0 ]; then
+        # Join array elements with ", "
+        local status=""
+        for i in "${!status_parts[@]}"; do
+            if [ $i -gt 0 ]; then
+                status="$status, "
+            fi
+            status="$status${status_parts[$i]}"
+        done
+        echo "($status)"
+    else
+        echo "(up-to-date)"
+    fi
+}
+
 # Prompt user for confirmation
 # Returns 0 if user confirms (y), 1 otherwise (N is default)
 prompt_user() {
@@ -179,7 +211,19 @@ process_branch_reset() {
         return
     fi
     
-    print_status "Processing branch: $branch"
+    # Get branch status relative to origin
+    local branch_status
+    branch_status=$(get_branch_status "$branch")
+    
+    print_status "Processing branch: $branch $branch_status"
+    
+    # Skip if branch is up-to-date
+    if [[ "$branch_status" == "(up-to-date)" ]]; then
+        print_success "Branch '$branch' is up-to-date, skipping reset"
+        SKIPPED_BRANCHES+=("$branch")
+        echo ""
+        return
+    fi
     
     # Switch to branch only if not current
     if [ "$is_current" = false ] && [ "$DRY_RUN" = false ]; then
