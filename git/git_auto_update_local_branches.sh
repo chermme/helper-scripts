@@ -4,6 +4,9 @@
 # CONFIGURATION
 # ====================================
 
+# Get script directory for calling other scripts
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 MAIN_BRANCH="${1:-main}"  # First argument or default to 'main'
 EXCLUDED_BRANCHES=("backup/" "temp/" "archive/")  # Add patterns to exclude
 EXCLUDED_GH_LABELS=("mergequeue")  # Add GitHub labels to exclude branches with these labels
@@ -427,19 +430,6 @@ merge_main_into_branch() {
         return 1
     }
 
-    # Create backup before making any changes
-    print_status "Creating backup of $branch..."
-    if [ "$DRY_RUN" = true ]; then
-        print_dry_run "Would create backup of $branch"
-    else
-        if command -v backup-branch >/dev/null 2>&1; then
-            backup-branch >/dev/null 2>&1 || print_warning "Failed to create backup of $branch"
-        else
-            # Try running as zsh alias
-            zsh -c "backup-branch" >/dev/null 2>&1 || print_warning "backup-branch command not found, skipping backup"
-        fi
-    fi
-
     # Pull latest changes for this branch
     if remote_branch_exists "$branch"; then
         print_status "Pulling latest changes for $branch..."
@@ -465,6 +455,18 @@ merge_main_into_branch() {
         print_success "Branch $branch is already up-to-date with $MAIN_BRANCH"
         SUCCESSFUL_BRANCHES+=("$branch")
         return 0
+    fi
+
+    # Create backup before making any changes
+    print_status "Creating backup of $branch..."
+    if [ "$DRY_RUN" = true ]; then
+        print_dry_run "Would create backup of $branch"
+    else
+        if [ -f "$SCRIPT_DIR/git_backup.sh" ]; then
+            "$SCRIPT_DIR/git_backup.sh" >/dev/null 2>&1 || print_warning "Failed to create backup of $branch"
+        else
+            print_warning "git_backup.sh not found at $SCRIPT_DIR, skipping backup"
+        fi
     fi
 
     # Attempt to merge main
@@ -631,19 +633,6 @@ process_stacked_branch() {
         return 1
     }
 
-    # Create backup before making any changes
-    print_status "Creating backup of $branch..."
-    if [ "$DRY_RUN" = true ]; then
-        print_dry_run "Would create backup of $branch"
-    else
-        if command -v backup-branch >/dev/null 2>&1; then
-            backup-branch >/dev/null 2>&1 || print_warning "Failed to create backup of $branch"
-        else
-            # Try running as zsh alias
-            zsh -c "backup-branch" >/dev/null 2>&1 || print_warning "backup-branch command not found, skipping backup"
-        fi
-    fi
-
     # Pull latest changes for this branch
     if remote_branch_exists "$branch"; then
         print_status "Pulling latest changes for $branch..."
@@ -677,6 +666,18 @@ process_stacked_branch() {
         print_success "Branch $branch is already up-to-date with parent $parent_branch"
         UPTODATE_WITH_PARENT_BRANCHES+=("$branch")
         return 0
+    fi
+    
+    # Create backup before rebasing
+    print_status "Creating backup of $branch..."
+    if [ "$DRY_RUN" = true ]; then
+        print_dry_run "Would create backup of $branch"
+    else
+        if [ -f "$SCRIPT_DIR/git_backup.sh" ]; then
+            "$SCRIPT_DIR/git_backup.sh" >/dev/null 2>&1 || print_warning "Failed to create backup of $branch"
+        else
+            print_warning "git_backup.sh not found at $SCRIPT_DIR, skipping backup"
+        fi
     fi
     
     print_status "Rebasing $branch onto $parent_branch..."
@@ -1078,11 +1079,10 @@ fi
 if [ "$DRY_RUN" = false ]; then
     echo
     print_status "Cleaning up old backup branches..."
-    if command -v delete-backup-branches >/dev/null 2>&1; then
-        delete-backup-branches
+    if [ -f "$SCRIPT_DIR/git_delete_backups.sh" ]; then
+        "$SCRIPT_DIR/git_delete_backups.sh" 2>/dev/null || print_warning "Failed to clean up old backups"
     else
-        # Try running as zsh alias/function
-        zsh -c "delete-backup-branches" 2>/dev/null || print_warning "delete-backup-branches command not found, skipping cleanup"
+        print_warning "git_delete_backups.sh not found at $SCRIPT_DIR, skipping cleanup"
     fi
 fi
 
