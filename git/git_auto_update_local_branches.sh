@@ -427,6 +427,19 @@ merge_main_into_branch() {
         return 1
     }
 
+    # Create backup before making any changes
+    print_status "Creating backup of $branch..."
+    if [ "$DRY_RUN" = true ]; then
+        print_dry_run "Would create backup of $branch"
+    else
+        if command -v backup-branch >/dev/null 2>&1; then
+            backup-branch >/dev/null 2>&1 || print_warning "Failed to create backup of $branch"
+        else
+            # Try running as zsh alias
+            zsh -c "backup-branch" >/dev/null 2>&1 || print_warning "backup-branch command not found, skipping backup"
+        fi
+    fi
+
     # Pull latest changes for this branch
     if remote_branch_exists "$branch"; then
         print_status "Pulling latest changes for $branch..."
@@ -617,6 +630,19 @@ process_stacked_branch() {
         FAILED_BRANCHES+=("$branch")
         return 1
     }
+
+    # Create backup before making any changes
+    print_status "Creating backup of $branch..."
+    if [ "$DRY_RUN" = true ]; then
+        print_dry_run "Would create backup of $branch"
+    else
+        if command -v backup-branch >/dev/null 2>&1; then
+            backup-branch >/dev/null 2>&1 || print_warning "Failed to create backup of $branch"
+        else
+            # Try running as zsh alias
+            zsh -c "backup-branch" >/dev/null 2>&1 || print_warning "backup-branch command not found, skipping backup"
+        fi
+    fi
 
     # Pull latest changes for this branch
     if remote_branch_exists "$branch"; then
