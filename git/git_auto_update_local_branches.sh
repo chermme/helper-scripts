@@ -1074,6 +1074,18 @@ else
     print_status "Operation completed!"
 fi
 
+# Clean up old backup branches
+if [ "$DRY_RUN" = false ]; then
+    echo
+    print_status "Cleaning up old backup branches..."
+    if command -v delete-backup-branches >/dev/null 2>&1; then
+        delete-backup-branches
+    else
+        # Try running as zsh alias/function
+        zsh -c "delete-backup-branches" 2>/dev/null || print_warning "delete-backup-branches command not found, skipping cleanup"
+    fi
+fi
+
 # Exit with appropriate code
 if [ ${#FAILED_BRANCHES[@]} -gt 0 ]; then
     exit 1
