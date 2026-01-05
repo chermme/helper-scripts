@@ -430,6 +430,17 @@ merge_main_into_branch() {
         return 1
     }
 
+    # Verify we're on the correct branch
+    actual_branch=$(git branch --show-current)
+    if [ "$actual_branch" != "$branch" ]; then
+        print_error "CRITICAL: Checked out wrong branch!"
+        print_error "Expected: $branch"
+        print_error "Actual:   $actual_branch"
+        print_error "This is a serious error. Aborting."
+        FAILED_BRANCHES+=("$branch")
+        exit 1
+    fi
+
     # Pull latest changes for this branch
     if remote_branch_exists "$branch"; then
         print_status "Pulling latest changes for $branch..."
@@ -632,6 +643,17 @@ process_stacked_branch() {
         FAILED_BRANCHES+=("$branch")
         return 1
     }
+
+    # Verify we're on the correct branch
+    actual_branch=$(git branch --show-current)
+    if [ "$actual_branch" != "$branch" ]; then
+        print_error "CRITICAL: Checked out wrong branch!"
+        print_error "Expected: $branch"
+        print_error "Actual:   $actual_branch"
+        print_error "This is a serious error. Aborting."
+        FAILED_BRANCHES+=("$branch")
+        exit 1
+    fi
 
     # Pull latest changes for this branch
     if remote_branch_exists "$branch"; then
@@ -975,6 +997,19 @@ if [ "$DRY_RUN" = false ]; then
         git checkout "$ORIGINAL_BRANCH"
     else
         git checkout "$ORIGINAL_BRANCH" >/dev/null 2>&1
+    fi || {
+        print_error "Failed to checkout $ORIGINAL_BRANCH"
+        exit 1
+    }
+    
+    # Verify we're on the correct branch
+    actual_branch=$(git branch --show-current)
+    if [ "$actual_branch" != "$ORIGINAL_BRANCH" ]; then
+        print_error "CRITICAL: Checked out wrong branch when returning!"
+        print_error "Expected: $ORIGINAL_BRANCH"
+        print_error "Actual:   $actual_branch"
+        print_error "This is a serious error. Aborting."
+        exit 1
     fi
 fi
 
