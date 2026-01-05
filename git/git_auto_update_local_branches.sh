@@ -806,11 +806,9 @@ else
     fi
     
     # Get the SHA of local main before update
-    local main_sha_before
     main_sha_before=$(git rev-parse HEAD)
     
     # Check if local main has commits not on remote
-    local commits_ahead
     commits_ahead=$(git rev-list origin/$MAIN_BRANCH..$MAIN_BRANCH --count 2>/dev/null || echo "0")
     
     if [ "$commits_ahead" != "0" ]; then
@@ -834,7 +832,6 @@ else
     }
     
     # Verify main was actually updated or already up to date
-    local main_sha_after
     main_sha_after=$(git rev-parse HEAD)
     
     if [ "$main_sha_before" != "$main_sha_after" ]; then
@@ -844,9 +841,7 @@ else
     fi
     
     # Final safety check: verify main matches remote exactly
-    local main_remote_sha
     main_remote_sha=$(git rev-parse "origin/$MAIN_BRANCH")
-    local main_local_sha
     main_local_sha=$(git rev-parse HEAD)
     
     if [ "$main_local_sha" != "$main_remote_sha" ]; then
@@ -961,9 +956,7 @@ reactivate_git_hooks
 
 # Final verification: ensure main branch wasn't modified
 if [ "$DRY_RUN" = false ]; then
-    local final_main_sha
     final_main_sha=$(git rev-parse "$MAIN_BRANCH" 2>/dev/null)
-    local final_remote_sha
     final_remote_sha=$(git rev-parse "origin/$MAIN_BRANCH" 2>/dev/null)
     
     if [ "$final_main_sha" != "$final_remote_sha" ]; then
