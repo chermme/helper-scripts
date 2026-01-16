@@ -4,6 +4,9 @@
 # CONFIGURATION
 # ====================================
 
+# Get script directory for calling other scripts
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 MAIN_BRANCH="${1:-main}"  # First argument or default to 'main'
 EXCLUDED_BRANCHES=("backup/" "temp/" "archive/")  # Add patterns to exclude
 EXCLUDED_GH_LABELS=("mergequeue")  # Add GitHub labels to exclude branches with these labels
@@ -427,6 +430,17 @@ merge_main_into_branch() {
         return 1
     }
 
+    # Verify we're on the correct branch
+    actual_branch=$(git branch --show-current)
+    if [ "$actual_branch" != "$branch" ]; then
+        print_error "CRITICAL: Checked out wrong branch!"
+        print_error "Expected: $branch"
+        print_error "Actual:   $actual_branch"
+        print_error "This is a serious error. Aborting."
+        FAILED_BRANCHES+=("$branch")
+        exit 1
+    fi
+
     # Pull latest changes for this branch
     if remote_branch_exists "$branch"; then
         print_status "Pulling latest changes for $branch..."
@@ -452,6 +466,18 @@ merge_main_into_branch() {
         print_success "Branch $branch is already up-to-date with $MAIN_BRANCH"
         SUCCESSFUL_BRANCHES+=("$branch")
         return 0
+    fi
+
+    # Create backup before making any changes
+    print_status "Creating backup of $branch..."
+    if [ "$DRY_RUN" = true ]; then
+        print_dry_run "Would create backup of $branch"
+    else
+        if [ -f "$SCRIPT_DIR/git_backup.sh" ]; then
+            "$SCRIPT_DIR/git_backup.sh" >/dev/null 2>&1 || print_warning "Failed to create backup of $branch"
+        else
+            print_warning "git_backup.sh not found at $SCRIPT_DIR, skipping backup"
+        fi
     fi
 
     # Attempt to merge main
@@ -485,6 +511,14 @@ merge_main_into_branch() {
 
     if [ "$merge_succeeded" = true ]; then
         print_success "Merge successful for $branch"
+
+        # Safety check: prevent pushing main branch
+        if [ "$branch" = "$MAIN_BRANCH" ]; then
+            print_error "CRITICAL: Attempted to push $MAIN_BRANCH branch!"
+            print_error "This should never happen. The script has a logic error."
+            FAILED_BRANCHES+=("$branch")
+            return 1
+        fi
 
         # Push the changes
         print_status "Pushing $branch..."
@@ -610,6 +644,17 @@ process_stacked_branch() {
         return 1
     }
 
+    # Verify we're on the correct branch
+    actual_branch=$(git branch --show-current)
+    if [ "$actual_branch" != "$branch" ]; then
+        print_error "CRITICAL: Checked out wrong branch!"
+        print_error "Expected: $branch"
+        print_error "Actual:   $actual_branch"
+        print_error "This is a serious error. Aborting."
+        FAILED_BRANCHES+=("$branch")
+        exit 1
+    fi
+
     # Pull latest changes for this branch
     if remote_branch_exists "$branch"; then
         print_status "Pulling latest changes for $branch..."
@@ -643,6 +688,18 @@ process_stacked_branch() {
         print_success "Branch $branch is already up-to-date with parent $parent_branch"
         UPTODATE_WITH_PARENT_BRANCHES+=("$branch")
         return 0
+    fi
+    
+    # Create backup before rebasing
+    print_status "Creating backup of $branch..."
+    if [ "$DRY_RUN" = true ]; then
+        print_dry_run "Would create backup of $branch"
+    else
+        if [ -f "$SCRIPT_DIR/git_backup.sh" ]; then
+            "$SCRIPT_DIR/git_backup.sh" >/dev/null 2>&1 || print_warning "Failed to create backup of $branch"
+        else
+            print_warning "git_backup.sh not found at $SCRIPT_DIR, skipping backup"
+        fi
     fi
     
     print_status "Rebasing $branch onto $parent_branch..."
@@ -773,17 +830,75 @@ else
     fi
 fi
 
-# Update main branch
+# Update main branch with safety checks
 print_status "Updating $MAIN_BRANCH branch..."
+
+# Checkout main branch
 if [ "$DRY_RUN" = true ]; then
-    print_dry_run "Would checkout and pull $MAIN_BRANCH"
+    print_dry_run "Would checkout and reset $MAIN_BRANCH"
 else
+    # Checkout main
     if [ "$VERBOSE" = true ]; then
         git checkout "$MAIN_BRANCH"
-        git pull origin "$MAIN_BRANCH"
     else
         git checkout "$MAIN_BRANCH" >/dev/null 2>&1
-        git pull origin "$MAIN_BRANCH" >/dev/null 2>&1
+    fi || {
+        print_error "Failed to checkout $MAIN_BRANCH"
+        exit 1
+    }
+    
+    # Verify main branch is clean before updating
+    if ! verify_clean_working_directory; then
+        print_error "$MAIN_BRANCH branch has uncommitted changes!"
+        print_error "This should never happen. Please investigate and clean up $MAIN_BRANCH manually."
+        exit 1
+    fi
+    
+    # Get the SHA of local main before update
+    main_sha_before=$(git rev-parse HEAD)
+    
+    # Check if local main has commits not on remote
+    commits_ahead=$(git rev-list origin/$MAIN_BRANCH..$MAIN_BRANCH --count 2>/dev/null || echo "0")
+    
+    if [ "$commits_ahead" != "0" ]; then
+        print_error "$MAIN_BRANCH is $commits_ahead commits ahead of origin/$MAIN_BRANCH!"
+        print_error "This indicates $MAIN_BRANCH has local commits that were never pushed."
+        print_error "This script will NOT modify $MAIN_BRANCH to prevent data loss."
+        print_error "Please investigate and fix $MAIN_BRANCH manually before running this script."
+        print_error "You may need to reset $MAIN_BRANCH to origin/$MAIN_BRANCH if the local commits are invalid."
+        exit 1
+    fi
+    
+    # Reset main to match remote exactly (safer than pull/merge)
+    print_status "Resetting $MAIN_BRANCH to origin/$MAIN_BRANCH..."
+    if [ "$VERBOSE" = true ]; then
+        git reset --hard "origin/$MAIN_BRANCH"
+    else
+        git reset --hard "origin/$MAIN_BRANCH" >/dev/null 2>&1
+    fi || {
+        print_error "Failed to reset $MAIN_BRANCH to origin/$MAIN_BRANCH"
+        exit 1
+    }
+    
+    # Verify main was actually updated or already up to date
+    main_sha_after=$(git rev-parse HEAD)
+    
+    if [ "$main_sha_before" != "$main_sha_after" ]; then
+        print_success "$MAIN_BRANCH updated from $main_sha_before to $main_sha_after"
+    else
+        print_success "$MAIN_BRANCH already up-to-date"
+    fi
+    
+    # Final safety check: verify main matches remote exactly
+    main_remote_sha=$(git rev-parse "origin/$MAIN_BRANCH")
+    main_local_sha=$(git rev-parse HEAD)
+    
+    if [ "$main_local_sha" != "$main_remote_sha" ]; then
+        print_error "CRITICAL ERROR: $MAIN_BRANCH does not match origin/$MAIN_BRANCH after update!"
+        print_error "Local:  $main_local_sha"
+        print_error "Remote: $main_remote_sha"
+        print_error "Aborting to prevent corruption."
+        exit 1
     fi
 fi
 
@@ -882,11 +997,40 @@ if [ "$DRY_RUN" = false ]; then
         git checkout "$ORIGINAL_BRANCH"
     else
         git checkout "$ORIGINAL_BRANCH" >/dev/null 2>&1
+    fi || {
+        print_error "Failed to checkout $ORIGINAL_BRANCH"
+        exit 1
+    }
+    
+    # Verify we're on the correct branch
+    actual_branch=$(git branch --show-current)
+    if [ "$actual_branch" != "$ORIGINAL_BRANCH" ]; then
+        print_error "CRITICAL: Checked out wrong branch when returning!"
+        print_error "Expected: $ORIGINAL_BRANCH"
+        print_error "Actual:   $actual_branch"
+        print_error "This is a serious error. Aborting."
+        exit 1
     fi
 fi
 
 # Reactivate git hooks
 reactivate_git_hooks
+
+# Final verification: ensure main branch wasn't modified
+if [ "$DRY_RUN" = false ]; then
+    final_main_sha=$(git rev-parse "$MAIN_BRANCH" 2>/dev/null)
+    final_remote_sha=$(git rev-parse "origin/$MAIN_BRANCH" 2>/dev/null)
+    
+    if [ "$final_main_sha" != "$final_remote_sha" ]; then
+        print_error "CRITICAL ERROR: $MAIN_BRANCH has diverged from origin/$MAIN_BRANCH!"
+        print_error "Local:  $final_main_sha"
+        print_error "Remote: $final_remote_sha"
+        print_error "This script has a bug that modified $MAIN_BRANCH."
+        print_error "DO NOT push $MAIN_BRANCH to remote!"
+        print_error "You may need to reset: git checkout $MAIN_BRANCH && git reset --hard origin/$MAIN_BRANCH"
+        exit 1
+    fi
+fi
 
 # Navigate back to original directory
 if [ "$ORIGINAL_DIR" != "$GIT_ROOT" ]; then
@@ -964,6 +1108,17 @@ elif [ "$NO_PUSH" = true ]; then
     print_warning "Operation completed! Changes made locally but not pushed to remote."
 else
     print_status "Operation completed!"
+fi
+
+# Clean up old backup branches
+if [ "$DRY_RUN" = false ]; then
+    echo
+    print_status "Cleaning up old backup branches..."
+    if [ -f "$SCRIPT_DIR/git_delete_backups.sh" ]; then
+        "$SCRIPT_DIR/git_delete_backups.sh" 2>/dev/null || print_warning "Failed to clean up old backups"
+    else
+        print_warning "git_delete_backups.sh not found at $SCRIPT_DIR, skipping cleanup"
+    fi
 fi
 
 # Exit with appropriate code
