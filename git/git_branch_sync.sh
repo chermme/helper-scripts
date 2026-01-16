@@ -8,8 +8,14 @@ SCRIPT_ZSH_ALIAS="git-branch-sync"
 # Git hooks to temporarily deactivate during operations
 HOOKS_TO_DEACTIVATE=("post-checkout" "post-merge" "pre-commit")
 
+# Branch patterns to ignore during restore (branches matching these patterns will be skipped)
+IGNORED_BRANCH_PATTERNS=("backup/")
+
 # Track deactivated hooks for cleanup
 DEACTIVATED_HOOKS=()
+
+# Track ignored branches during restore
+IGNORED_BRANCHES=()
 
 # Get the absolute path to this script
 if [ -n "${BASH_SOURCE[0]}" ]; then
@@ -40,6 +46,23 @@ get_repo_id() {
     # Remove protocol, replace special chars with underscores
     REPO_ID=$(echo "$REMOTE_URL" | sed -e 's|^.*://||' -e 's|^git@||' -e 's|:|/|' -e 's|\.git$||' -e 's|[^a-zA-Z0-9/_-]|_|g')
     echo "$REPO_ID"
+}
+
+# ============================================================================
+# Branch Filtering
+# ============================================================================
+
+# Check if a branch should be ignored based on IGNORED_BRANCH_PATTERNS
+should_ignore_branch() {
+    local branch="$1"
+    
+    for pattern in "${IGNORED_BRANCH_PATTERNS[@]}"; do
+        if [[ "$branch" == *"$pattern"* ]]; then
+            return 0  # Should ignore (pattern matches)
+        fi
+    done
+    
+    return 1  # Should not ignore (no pattern matches)
 }
 
 # ============================================================================
@@ -191,29 +214,38 @@ restore_workspace() {
 
     # Restore each branch
     for branch in "${BRANCHES[@]}"; do
+        # Skip ignored branches based on patterns
+        if should_ignore_branch "$branch"; then
+            IGNORED_BRANCHES+=("$branch")
+            echo "  ⊘ $branch (ignored - matches pattern)"
+            continue
+        fi
+        
+        # Skip branches that don't exist in origin (local-only branches)
+        if ! git show-ref --verify --quiet "refs/remotes/origin/$branch"; then
+            IGNORED_BRANCHES+=("$branch")
+            echo "  ⊘ $branch (ignored - not in origin)"
+            continue
+        fi
+        
         if git show-ref --verify --quiet "refs/heads/$branch"; then
-            # Branch exists locally, update it
+            # Branch exists locally, update it from origin
             git checkout "$branch" --quiet 2>/dev/null
-            if git show-ref --verify --quiet "refs/remotes/origin/$branch"; then
-                PULL_OUTPUT=$(git pull --quiet origin "$branch" 2>&1)
-                PULL_STATUS=$?
-                if [ $PULL_STATUS -eq 0 ]; then
-                    if [[ "$PULL_OUTPUT" == *"Already up to date"* ]]; then
-                        echo "  ✓ $branch (already up-to-date)"
-                    else
-                        echo "  ✓ $branch (updated from origin)"
-                    fi
+            PULL_OUTPUT=$(git pull --quiet origin "$branch" 2>&1)
+            PULL_STATUS=$?
+            if [ $PULL_STATUS -eq 0 ]; then
+                if [[ "$PULL_OUTPUT" == *"Already up to date"* ]]; then
+                    echo "  ✓ $branch (already up-to-date)"
                 else
-                    echo "  ⚠ $branch (pull failed - may have conflicts)"
+                    echo "  ✓ $branch (updated from origin)"
                 fi
             else
-                echo "  ✓ $branch (exists locally, no remote)"
+                echo "  ⚠ $branch (pull failed - may have conflicts)"
             fi
-        elif git show-ref --verify --quiet "refs/remotes/origin/$branch"; then
+        else
+            # Branch doesn't exist locally, create it from origin
             git checkout -b "$branch" "origin/$branch" --quiet 2>/dev/null
             echo "  ✓ $branch (created from origin)"
-        else
-            echo "  ✗ $branch (not found in remote)"
         fi
     done
 
@@ -222,6 +254,12 @@ restore_workspace() {
         git checkout "$CURRENT_BRANCH" --quiet
         echo ""
         echo "✓ Restored to branch: $CURRENT_BRANCH"
+    fi
+    
+    # Show summary of ignored branches if any
+    if [ ${#IGNORED_BRANCHES[@]} -gt 0 ]; then
+        echo ""
+        echo "Ignored ${#IGNORED_BRANCHES[@]} branch(es) matching patterns: ${IGNORED_BRANCH_PATTERNS[*]}"
     fi
 
     # Check for local branches not in workspace file
