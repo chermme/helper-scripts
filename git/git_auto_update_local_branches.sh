@@ -8,7 +8,7 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 MAIN_BRANCH="${1:-main}"  # First argument or default to 'main'
-EXCLUDED_BRANCHES=("backup/" "temp/" "archive/" "/topic")  # Add patterns to exclude
+EXCLUDED_BRANCHES=("backup/" "temp/" "archive/" "topic/")  # Add patterns to exclude
 EXCLUDED_GH_LABELS=("mergequeue")  # Add GitHub labels to exclude branches with these labels
 DRY_RUN="${DRY_RUN:-false}"  # Set to true for dry-run mode
 NO_PUSH="${NO_PUSH:-false}"  # Set to true to prevent pushing to remote
