@@ -140,8 +140,16 @@ save_workspace() {
     
     WORKSPACE_FILE="$WORKSPACE_PATH/.git-workspace"
     CURRENT=$(git branch --show-current)
-    BRANCHES=$(git branch --format='%(refname:short)')
+    ALL_BRANCHES=$(git branch --format='%(refname:short)')
     REMOTE_URL=$(git config --get remote.origin.url 2>/dev/null)
+
+    # Filter out ignored branches
+    BRANCHES=()
+    while IFS= read -r branch; do
+        if ! should_ignore_branch "$branch"; then
+            BRANCHES+=("$branch")
+        fi
+    done <<< "$ALL_BRANCHES"
 
     cat > "$WORKSPACE_FILE" <<EOF
 repo_path=$REPO_ROOT
@@ -152,7 +160,7 @@ updated=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
 # Branches (one per line)
 EOF
 
-    echo "$BRANCHES" >> "$WORKSPACE_FILE"
+    printf "%s\n" "${BRANCHES[@]}" >> "$WORKSPACE_FILE"
     
     echo "✓ Workspace saved: $WORKSPACE_FILE"
 }
