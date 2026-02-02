@@ -19,12 +19,14 @@ A bash script that automatically updates all your local Git branches by merging 
 ### Basic Usage
 
 ```bash
-# Update all branches (uses 'main' as the default branch)
+# Update all branches (auto-detects default branch from GitHub)
 ./git_auto_update_local_branches.sh
 
-# Use a different main branch
+# Override with a different main branch
 ./git_auto_update_local_branches.sh develop
 ```
+
+**Note**: The script automatically detects the default branch using GitHub CLI (`gh`). If you don't have `gh` installed or authenticated, you must specify the branch name as an argument.
 
 ### Dry-Run Mode
 
@@ -56,12 +58,13 @@ VERBOSE=true ./git_auto_update_local_branches.sh
 
 The script processes all non-stacked branches first:
 
-1. Fetches latest changes from remote.
-2. Updates the `main` branch by pulling the latest changes.
-3. For each regular branch:
+1. Auto-detects the default branch from GitHub (or uses the provided argument).
+2. Fetches latest changes from remote.
+3. Updates the default branch by resetting it to match the remote.
+4. For each regular branch:
    - Checks out the branch.
    - Pulls latest changes for the branch.
-   - Merges `main` into the branch.
+   - Merges the default branch into the branch.
    - Pushes changes to the remote.
 
 ### Phase 2: Stacked Branches
@@ -102,7 +105,8 @@ You can configure the script by editing the variables at the top of the file or 
 
 ```bash
 # --- Script Configuration ---
-MAIN_BRANCH="${1:-main}"
+# Auto-detected from GitHub or override with first argument
+MAIN_BRANCH="${1:-$(detect_default_branch)}"
 EXCLUDED_BRANCHES=("backup/" "temp/" "archive/")
 EXCLUDED_GH_LABELS=("mergequeue")
 
@@ -151,16 +155,24 @@ The script will show you the exact commands to run.
 
 ### Required
 
-- Git
-- Bash 4.0+ (for associative arrays). The script uses `#!/usr/bin/env bash` to find the latest version in your `PATH`.
+- **Git**: Version control system
+- **Bash 3.2+**: Compatible with macOS default Bash version
+- **GitHub CLI (`gh`)**: For auto-detecting the default branch from GitHub
+- **jq**: For parsing GitHub CLI JSON output
 
 ### Optional
 
-- **GitHub CLI (`gh`)**: For checking PR labels.
-- **jq**: For parsing GitHub CLI output.
 - **npm**: For automatic dependency updates if `package.json` changes are detected.
 
-If optional tools are not installed, the script will skip related features and continue.
+**Note**: Unlike previous versions, `gh` and `jq` are now required for default branch detection. If you don't have them installed, you must specify the branch name as an argument:
+
+```bash
+# Install GitHub CLI and jq (macOS)
+brew install gh jq
+
+# Or specify branch manually
+./git_auto_update_local_branches.sh main
+```
 
 ## Error Handling
 

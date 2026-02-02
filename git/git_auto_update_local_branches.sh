@@ -7,7 +7,36 @@
 # Get script directory for calling other scripts
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-MAIN_BRANCH="${1:-main}"  # First argument or default to 'main'
+# Detect the default branch from the repository using GitHub CLI
+detect_default_branch() {
+    # Check if required tools are available
+    if ! command -v gh >/dev/null 2>&1; then
+        print_error "GitHub CLI (gh) is not installed. Cannot determine default branch."
+        print_error "Please install gh or specify the branch name as the first argument."
+        exit 1
+    fi
+    
+    if ! command -v jq >/dev/null 2>&1; then
+        print_error "jq is not installed. Cannot determine default branch."
+        print_error "Please install jq or specify the branch name as the first argument."
+        exit 1
+    fi
+    
+    # Get default branch from GitHub
+    local default_branch
+    default_branch=$(gh repo view --json defaultBranchRef --jq '.defaultBranchRef.name' 2>&1)
+    
+    if [ $? -ne 0 ] || [ -z "$default_branch" ]; then
+        print_error "Failed to determine default branch from GitHub."
+        print_error "Error: $default_branch"
+        print_error "Please specify the branch name as the first argument."
+        exit 1
+    fi
+    
+    echo "$default_branch"
+}
+
+MAIN_BRANCH="${1:-$(detect_default_branch)}"  # First argument or auto-detect
 EXCLUDED_BRANCHES=("backup/" "temp/" "archive/" "topic/")  # Add patterns to exclude
 EXCLUDED_GH_LABELS=("mergequeue")  # Add GitHub labels to exclude branches with these labels
 DRY_RUN="${DRY_RUN:-false}"  # Set to true for dry-run mode
