@@ -839,7 +839,7 @@ if [ "$NO_PUSH" = true ]; then
     print_warning "NO_PUSH MODE: Changes will be made locally but not pushed to remote"
 fi
 
-print_status "Main branch: $MAIN_BRANCH"
+print_status "Main branch: ${YELLOW}${MAIN_BRANCH}${NC}"
 print_status "Currently on branch: $ORIGINAL_BRANCH"
 print_status "Excluded patterns: ${EXCLUDED_BRANCHES[*]}"
 print_status "Excluded GitHub labels: ${EXCLUDED_GH_LABELS[*]}"
