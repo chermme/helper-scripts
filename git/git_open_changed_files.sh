@@ -1,5 +1,12 @@
 #!/bin/bash
 
+# ====================================
+# CONFIGURATION
+# ====================================
+EXCLUDED_FILES=(
+    "*.snap"
+)
+
 # Get the list of files changed in the current branch compared to main/master
 # First, try to find the default branch name
 default_branch=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@')
@@ -31,10 +38,23 @@ fi
 file_count=$(echo "$changed_files" | wc -l)
 echo "Opening $file_count changed file(s) in VSCode..."
 
+# Check if file matches any excluded pattern
+is_excluded() {
+    local file="$1"
+    for pattern in "${EXCLUDED_FILES[@]}"; do
+        if [[ "$file" == $pattern ]]; then
+            return 0
+        fi
+    done
+    return 1
+}
+
 # Build array of files that exist
 files_to_open=()
 while IFS= read -r file; do
-    if [ -f "$file" ]; then
+    if is_excluded "$file"; then
+        echo "  ⊘ $file (excluded)"
+    elif [ -f "$file" ]; then
         files_to_open+=("$file")
     else
         echo "  ✗ $file (file not found, may have been deleted)"
