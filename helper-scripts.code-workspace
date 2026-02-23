@@ -12,6 +12,11 @@
 			"titleBar.activeForeground": "#e7e7e7",
 			"titleBar.inactiveBackground": "#01442f99",
 			"titleBar.inactiveForeground": "#e7e7e799"
+		},
+		"terminal.integrated.suggest.quickSuggestions": {
+			"commands": "on",
+			"arguments": "on",
+			"unknown": "on"
 		}
 	}
 }
