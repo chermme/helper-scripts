@@ -14,7 +14,7 @@ BACKUP_DIR="$HOME/.dotfiles_backup_$(date +%Y%m%d_%H%M%S)"
 
 # Config dotfiles and dotfolders to sync
 FILES=(".zshrc" ".gitconfig" ".gitignore_global" ".hgignore_global" ".zprofile")
-DIRECTORIES=(".config" ".gnupg" ".git-workspaces" ".claude")
+DIRECTORIES=(".config" ".gnupg" ".git-workspaces" ".claude" ".copilot")
 
 # Other folder pairs to sync (format: "SOURCE_PATH,DESTINATION_PATH")
 # SOURCE_PATH: absolute path to source folder
